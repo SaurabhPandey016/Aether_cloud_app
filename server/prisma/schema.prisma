@@ -1,0 +1,152 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// User model - stores user authentication and profile
+model User {
+  id                    String     @id @default(cuid())
+  email                 String     @unique
+  password              String
+  name                  String
+  avatar                String?
+  createdAt             DateTime   @default(now())
+  updatedAt             DateTime   @updatedAt
+
+  // Relationships
+  folders               Folder[]
+  files                 File[]
+  sharesOwned           Share[] @relation("shareOwner")
+  sharesReceived        Share[] @relation("shareTarget")
+  publicLinks           PublicLink[]
+  trash                 Trash[]
+  favoriteFiles         File[] @relation("favorites")
+  favoriteFolders       Folder[] @relation("favorites")
+
+  @@index([email])
+}
+
+// Folder model - represents folders in the file system
+model Folder {
+  id                    String     @id @default(cuid())
+  name                  String
+  ownerId               String
+  owner                 User       @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  parentId              String?
+  parent                Folder?    @relation("FolderHierarchy", fields: [parentId], references: [id], onDelete: Cascade)
+  children              Folder[]   @relation("FolderHierarchy")
+  createdAt             DateTime   @default(now())
+  updatedAt             DateTime   @updatedAt
+
+  // Relationships
+  files                 File[]
+  shares                Share[] @relation("folderShare")
+  publicLinks           PublicLink[] @relation("folderPublicLink")
+  trash                 Trash[] @relation("folderTrash")
+  favoriteBy            User[] @relation("favorites")
+
+  @@index([ownerId])
+  @@index([parentId])
+  @@index([createdAt])
+}
+
+// File model - represents files
+model File {
+  id                    String     @id @default(cuid())
+  name                  String
+  mimeType              String
+  size                  BigInt
+  fileKey               String?    @unique // Legacy: Supabase storage path (optional for backward compatibility)
+  fileData              Bytes?     // File binary data stored in database
+  ownerId               String
+  owner                 User       @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  folderId              String?
+  folder                Folder?    @relation(fields: [folderId], references: [id], onDelete: Cascade)
+  createdAt             DateTime   @default(now())
+  updatedAt             DateTime   @updatedAt
+
+  // Relationships
+  shares                Share[] @relation("fileShare")
+  publicLinks           PublicLink[] @relation("filePublicLink")
+  trash                 Trash[] @relation("fileTrash")
+  favoriteBy            User[] @relation("favorites")
+
+  @@index([ownerId])
+  @@index([folderId])
+  @@index([createdAt])
+}
+
+// Share model - represents sharing files/folders with specific users
+enum SharePermission {
+  VIEWER
+  EDITOR
+}
+
+model Share {
+  id                    String     @id @default(cuid())
+  ownerId               String
+  owner                 User       @relation("shareOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  fileId                String?
+  file                  File?      @relation("fileShare", fields: [fileId], references: [id], onDelete: Cascade)
+  folderId              String?
+  folder                Folder?    @relation("folderShare", fields: [folderId], references: [id], onDelete: Cascade)
+  sharedWithId          String
+  sharedWith            User       @relation("shareTarget", fields: [sharedWithId], references: [id], onDelete: Cascade)
+  permission            SharePermission @default(VIEWER)
+  createdAt             DateTime   @default(now())
+  updatedAt             DateTime   @updatedAt
+
+  @@unique([fileId, sharedWithId])
+  @@unique([folderId, sharedWithId])
+  @@index([ownerId])
+  @@index([sharedWithId])
+}
+
+// PublicLink model - represents public share links
+model PublicLink {
+  id                    String     @id @default(cuid())
+  token                 String     @unique
+  ownerId               String
+  owner                 User       @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  fileId                String?
+  file                  File?      @relation("filePublicLink", fields: [fileId], references: [id], onDelete: Cascade)
+  folderId              String?
+  folder                Folder?    @relation("folderPublicLink", fields: [folderId], references: [id], onDelete: Cascade)
+  password              String?
+  expiresAt             DateTime?
+  createdAt             DateTime   @default(now())
+  updatedAt             DateTime   @updatedAt
+
+  @@index([token])
+  @@index([ownerId])
+}
+
+// Trash model - represents deleted files/folders (soft delete)
+model Trash {
+  id                    String     @id @default(cuid())
+  ownerId               String
+  owner                 User       @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  fileId                String?
+  file                  File?      @relation("fileTrash", fields: [fileId], references: [id], onDelete: NoAction)
+  folderId              String?
+  folder                Folder?    @relation("folderTrash", fields: [folderId], references: [id], onDelete: SetNull)
+  deletedAt             DateTime   @default(now())
+  expiresAt             DateTime   // 30 days from deletion
+
+  @@index([ownerId])
+  @@index([expiresAt])
+}
+
+// Session model for express-session with PostgreSQL store
+model Session {
+  sid                   String     @id
+  sess                  Json
+  expire                DateTime
+
+  @@index([expire])
+}
