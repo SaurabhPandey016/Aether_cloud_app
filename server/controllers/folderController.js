@@ -15,7 +15,8 @@ export const createFolder = asyncHandler(async (req, res, next) => {
       throw new AppError('Parent folder not found', 404);
     }
 
-    if (parentFolder.ownerId !== userId) {
+    const editorShare = await prisma.share.findFirst({ where: { folderId: parentId, sharedWithId: userId, permission: 'EDITOR' } });
+    if (parentFolder.ownerId !== userId && !editorShare) {
       throw new AppError('You do not have permission to create folders here', 403);
     }
   }
@@ -44,8 +45,8 @@ export const getFolders = asyncHandler(async (req, res, next) => {
 
   const folders = await prisma.folder.findMany({
     where: {
-      ownerId: userId,
       parentId: parentId || null,
+      OR: [{ ownerId: userId }, { shares: { some: { sharedWithId: userId } } }],
     },
     include: {
       owner: { select: { id: true, name: true } },
@@ -106,15 +107,13 @@ export const renameFolder = asyncHandler(async (req, res, next) => {
   const { name } = req.validatedData;
   const userId = req.user.id;
 
-  const folder = await prisma.folder.findUnique({
-    where: { id: folderId },
-  });
+  const folder = await prisma.folder.findUnique({ where: { id: folderId }, include: { shares: { where: { sharedWithId: userId }, select: { permission: true } } } });
 
   if (!folder) {
     throw new AppError('Folder not found', 404);
   }
 
-  if (folder.ownerId !== userId) {
+  if (folder.ownerId !== userId && !folder.shares.some((share) => share.permission === 'EDITOR')) {
     throw new AppError('You do not have permission to rename this folder', 403);
   }
 
@@ -138,15 +137,13 @@ export const moveFolder = asyncHandler(async (req, res, next) => {
   const { parentId } = req.validatedData;
   const userId = req.user.id;
 
-  const folder = await prisma.folder.findUnique({
-    where: { id: folderId },
-  });
+  const folder = await prisma.folder.findUnique({ where: { id: folderId }, include: { shares: { where: { sharedWithId: userId }, select: { permission: true } } } });
 
   if (!folder) {
     throw new AppError('Folder not found', 404);
   }
 
-  if (folder.ownerId !== userId) {
+  if (folder.ownerId !== userId && !folder.shares.some((share) => share.permission === 'EDITOR')) {
     throw new AppError('You do not have permission to move this folder', 403);
   }
 
@@ -161,7 +158,7 @@ export const moveFolder = asyncHandler(async (req, res, next) => {
       where: { id: parentId },
     });
 
-    if (!parentFolder || parentFolder.ownerId !== userId) {
+    if (!parentFolder || (parentFolder.ownerId !== userId && !await prisma.share.findFirst({ where: { folderId: parentId, sharedWithId: userId, permission: 'EDITOR' } }))) {
       throw new AppError('Invalid parent folder', 400);
     }
   }
@@ -186,15 +183,13 @@ export const deleteFolder = asyncHandler(async (req, res, next) => {
   const { folderId } = req.params;
   const userId = req.user.id;
 
-  const folder = await prisma.folder.findUnique({
-    where: { id: folderId },
-  });
+  const folder = await prisma.folder.findUnique({ where: { id: folderId }, include: { shares: { where: { sharedWithId: userId }, select: { permission: true } } } });
 
   if (!folder) {
     throw new AppError('Folder not found', 404);
   }
 
-  if (folder.ownerId !== userId) {
+  if (folder.ownerId !== userId && !folder.shares.some((share) => share.permission === 'EDITOR')) {
     throw new AppError('You do not have permission to delete this folder', 403);
   }
 
@@ -208,7 +203,7 @@ export const deleteFolder = asyncHandler(async (req, res, next) => {
     ...files.map((file) =>
       prisma.trash.create({
         data: {
-          ownerId: userId,
+          ownerId: folder.ownerId,
           fileId: file.id,
           expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
         },
@@ -217,7 +212,7 @@ export const deleteFolder = asyncHandler(async (req, res, next) => {
     // Move folder to trash
     prisma.trash.create({
       data: {
-        ownerId: userId,
+        ownerId: folder.ownerId,
         folderId,
         expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
       },

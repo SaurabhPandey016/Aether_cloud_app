@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useFileStore } from '@/lib/stores/fileStore';
 import { useAuthStore } from '@/lib/stores/authStore';
 import { fileAPI, folderAPI, shareAPI } from '@/lib/api';
-import { Upload, MoreVertical, Download, Share2, Heart, X, Trash2, Copy, Check, UserPlus, Link2, Eye, Pencil, FileUp, PencilLine, FolderInput, Filter, FolderOpen, ChevronRight, Plus } from 'lucide-react';
+import { Upload, MoreVertical, Download, Share2, Heart, X, Trash2, Copy, Check, UserPlus, Link2, Eye, Pencil, FileUp, PencilLine, FolderInput, Filter, FolderOpen, ChevronRight, Plus, LoaderCircle } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 
 export default function FileExplorer() {
@@ -26,6 +26,7 @@ export default function FileExplorer() {
   const [sharePassword, setSharePassword] = useState('');
   const [shares, setShares] = useState<any[]>([]);
   const [publicLinks, setPublicLinks] = useState<any[]>([]);
+  const [newLinkIds, setNewLinkIds] = useState<string[]>([]);
   const [shareLoading, setShareLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -38,6 +39,9 @@ export default function FileExplorer() {
   const [moveItem, setMoveItem] = useState<{ id: string; name: string; type: 'file' | 'folder' } | null>(null);
   const [moveDestination, setMoveDestination] = useState('');
   const [folderMenuId, setFolderMenuId] = useState<string | null>(null);
+  const [allFolders, setAllFolders] = useState<typeof folders>([]);
+  const [moveFoldersLoading, setMoveFoldersLoading] = useState(false);
+  const [actionBusy, setActionBusy] = useState<string | null>(null);
 
   useEffect(() => {
     if (user) {
@@ -102,6 +106,7 @@ export default function FileExplorer() {
   };
 
   const handleDownload = async (file: { id: string; name: string }) => {
+    setActionBusy(`download:${file.id}`);
     try {
       setMenuOpenId(null);
       const response = await fileAPI.download(file.id);
@@ -117,6 +122,8 @@ export default function FileExplorer() {
       setNotice(`${file.name} downloaded`);
     } catch (err: any) {
       setNotice(err?.message || 'Download failed');
+    } finally {
+      setActionBusy(null);
     }
   };
 
@@ -124,6 +131,7 @@ export default function FileExplorer() {
     try {
       setMenuOpenId(null);
       setShareFile({ ...file, itemType: file.itemType || 'file' });
+      setNewLinkIds([]);
       setShareLoading(true);
       const [shareResponse, linkResponse] = await Promise.all([
         shareAPI.getShares(file.itemType || 'file', file.id) as Promise<any>,
@@ -139,34 +147,28 @@ export default function FileExplorer() {
   };
 
   const addUserShare = async () => {
-    if (!shareFile || !shareEmail.trim()) return;
-    setShareLoading(true);
-    try {
-      const response = await shareAPI.shareWithUser({ itemId: shareFile.id, itemType: shareFile.itemType, sharedWithEmail: shareEmail.trim(), permission: sharePermission }) as any;
-      setShares((current) => [...current.filter((share) => share.id !== response.share.id), response.share]);
-      const linkResponse = await shareAPI.createPublicLink({ itemId: shareFile.id, itemType: shareFile.itemType, permission: sharePermission }) as any;
-      setPublicLinks((current) => [linkResponse.link, ...current]);
-      setShareEmail('');
-      await copyLink(linkResponse.link.publicUrl);
-      setNotice(`Shared ${shareFile.name}; link copied`);
-    } catch (err: any) {
-      setNotice(err?.message || 'Could not share with this user');
-    } finally {
-      setShareLoading(false);
+    const normalizedEmail = shareEmail.trim().toLowerCase();
+    if (!shareFile || !normalizedEmail) {
+      setNotice('Enter a recipient email first.');
+      return;
     }
-  };
-
-  const createLink = async () => {
-    if (!shareFile) return;
+    if (!/^\S+@\S+\.\S+$/.test(normalizedEmail)) {
+      setNotice('Enter a valid recipient email.');
+      return;
+    }
     setShareLoading(true);
     try {
-      const response = await shareAPI.createPublicLink({ itemId: shareFile.id, itemType: shareFile.itemType, permission: sharePermission, expiresAt: shareExpiry ? new Date(shareExpiry).toISOString() : undefined, password: sharePassword || undefined }) as any;
+      const response = await shareAPI.shareWithLink({ itemId: shareFile.id, itemType: shareFile.itemType, recipientEmail: normalizedEmail, permission: sharePermission, expiresAt: shareExpiry ? new Date(shareExpiry).toISOString() : undefined, password: sharePassword || undefined }) as any;
       setPublicLinks((current) => [response.link, ...current]);
+      setNewLinkIds((current) => [response.link.id, ...current]);
+      setShareEmail('');
       setShareExpiry('');
       setSharePassword('');
-      setNotice('Public link created');
+      await copyLink(response.link.publicUrl);
+      setNotice(`Link created for ${normalizedEmail}; copied to clipboard`);
     } catch (err: any) {
-      setNotice(err?.message || 'Could not create public link');
+      const detail = err?.errors?.[0]?.message;
+      setNotice(detail ? `Share failed: ${detail}` : `Share failed: ${err?.message || 'Could not share with this user'}`);
     } finally {
       setShareLoading(false);
     }
@@ -183,11 +185,28 @@ export default function FileExplorer() {
   };
 
   const copyLink = async (url: string) => {
-    await navigator.clipboard.writeText(url);
-    setNotice('Public link copied');
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(url);
+      } else {
+        const textarea = document.createElement('textarea');
+        textarea.value = url;
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.focus();
+        textarea.select();
+        document.execCommand('copy');
+        textarea.remove();
+      }
+      setNotice('Public link copied to clipboard');
+    } catch {
+      setNotice('Share created. Copy the link from Generated links.');
+    }
   };
 
   const handleFavorite = async (file: { id: string; name: string }) => {
+    setActionBusy(`favorite:${file.id}`);
     try {
       setMenuOpenId(null);
       await toggleFavorite(file.id);
@@ -195,10 +214,13 @@ export default function FileExplorer() {
       setNotice(`${file.name} updated`);
     } catch (err: any) {
       setNotice(err?.message || 'Could not update favorite');
+    } finally {
+      setActionBusy(null);
     }
   };
 
   const handleDelete = async (file: { id: string; name: string }) => {
+    setActionBusy(`delete:${file.id}`);
     try {
       setMenuOpenId(null);
       await deleteFile(file.id);
@@ -206,28 +228,60 @@ export default function FileExplorer() {
       setNotice(`${file.name} moved to trash`);
     } catch (err: any) {
       setNotice(err?.message || 'Delete failed');
+    } finally {
+      setActionBusy(null);
     }
   };
 
   const handleRename = async (file: { id: string; name: string }) => {
     const name = window.prompt('Enter a new file name', file.name)?.trim();
     if (!name || name === file.name) return;
-    await renameFile(file.id, name);
-    setNotice(`${file.name} renamed`);
+    setActionBusy(`rename:${file.id}`);
+    try {
+      await renameFile(file.id, name);
+      setNotice(`${file.name} renamed`);
+    } finally {
+      setActionBusy(null);
+    }
+  };
+
+  const loadAllFolders = async () => {
+    setMoveFoldersLoading(true);
+    try {
+      const collected: any[] = [];
+      const visit = async (parentId?: string) => {
+        const response = await folderAPI.getList({ parentId }) as any;
+        const children = response.folders || [];
+        collected.push(...children);
+        await Promise.all(children.map((folder: any) => visit(folder.id)));
+      };
+      await visit();
+      setAllFolders(collected);
+    } catch {
+      setNotice('Could not load folders for moving');
+    } finally {
+      setMoveFoldersLoading(false);
+    }
   };
 
   const handleMove = async (file: { id: string; name: string }) => {
     setMoveItem({ ...file, type: 'file' });
     setMoveDestination('');
+    void loadAllFolders();
   };
 
   const handleCreateFolder = async () => {
     const name = newFolderName.trim();
     if (!name) return;
-    await createFolder(name, parentId || undefined);
-    setNewFolderName('');
-    setIsCreatingFolder(false);
-    setNotice(`${name} folder created`);
+    setActionBusy('create-folder');
+    try {
+      await createFolder(name, parentId || undefined);
+      setNewFolderName('');
+      setIsCreatingFolder(false);
+      setNotice(`${name} folder created`);
+    } finally {
+      setActionBusy(null);
+    }
   };
 
   const openFolder = (folderId: string) => router.push(`/dashboard?parentId=${folderId}`);
@@ -235,16 +289,22 @@ export default function FileExplorer() {
   const handleMoveFolder = (folder: { id: string; name: string }) => {
     setMoveItem({ ...folder, type: 'folder' });
     setMoveDestination('');
+    void loadAllFolders();
   };
 
   const confirmMove = async () => {
     if (!moveItem) return;
-    if (moveItem.type === 'file') await moveFile(moveItem.id, moveDestination || undefined);
-    else await useFileStore.getState().moveFolder(moveItem.id, moveDestination || undefined);
-    setMoveItem(null);
-    await loadFiles(parentId || undefined, searchQuery);
-    await loadFolders(parentId || undefined);
-    setNotice(`${moveItem.name} moved successfully`);
+    setActionBusy(`move:${moveItem.id}`);
+    try {
+      if (moveItem.type === 'file') await moveFile(moveItem.id, moveDestination || undefined);
+      else await useFileStore.getState().moveFolder(moveItem.id, moveDestination || undefined);
+      setMoveItem(null);
+      await loadFiles(parentId || undefined, searchQuery);
+      await loadFolders(parentId || undefined);
+      setNotice(`${moveItem.name} moved successfully`);
+    } finally {
+      setActionBusy(null);
+    }
   };
 
   const handleDeleteFolder = async (folder: { id: string; name: string }) => {
@@ -377,8 +437,8 @@ export default function FileExplorer() {
 
                     {menuOpenId === file.id && (
                       <div className="absolute right-0 z-20 mt-2 w-44 overflow-hidden rounded-xl border border-cyan-500/20 bg-[#020817]/95 p-1 shadow-[0_20px_40px_rgba(34,211,238,0.12)] backdrop-blur-xl">
-                        <button onClick={() => handleDownload(file)} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-cyan-200 hover:bg-cyan-500/10">
-                          <Download className="h-4 w-4" />
+                        <button onClick={() => void handleDownload(file)} disabled={actionBusy === `download:${file.id}`} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-cyan-200 hover:bg-cyan-500/10 disabled:opacity-50">
+                          {actionBusy === `download:${file.id}` ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
                           Download
                         </button>
                         <button onClick={() => handleShare(file)} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-cyan-200 hover:bg-cyan-500/10">
@@ -387,12 +447,12 @@ export default function FileExplorer() {
                         </button>
                         <button onClick={() => handleRename(file)} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-cyan-200 hover:bg-cyan-500/10"><PencilLine className="h-4 w-4" />Rename</button>
                         <button onClick={() => handleMove(file)} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-cyan-200 hover:bg-cyan-500/10"><FolderInput className="h-4 w-4" />Move to My Files</button>
-                        <button onClick={() => handleFavorite(file)} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-cyan-200 hover:bg-cyan-500/10">
+                        <button onClick={() => void handleFavorite(file)} disabled={actionBusy === `favorite:${file.id}`} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-cyan-200 hover:bg-cyan-500/10 disabled:opacity-50">
                           <Heart className={file.isFavorite ? 'h-4 w-4 fill-rose-400 text-rose-400' : 'h-4 w-4'} />
                           {file.isFavorite ? 'Unstar' : 'Star'}
                         </button>
-                        <button onClick={() => handleDelete(file)} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-red-300 hover:bg-red-500/10">
-                          <Trash2 className="h-4 w-4" />
+                        <button onClick={() => void handleDelete(file)} disabled={actionBusy === `delete:${file.id}`} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-red-300 hover:bg-red-500/10 disabled:opacity-50">
+                          {actionBusy === `delete:${file.id}` ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
                           Delete
                         </button>
                       </div>
@@ -440,29 +500,28 @@ export default function FileExplorer() {
             {shareLoading && <p className="mt-5 text-sm text-cyan-300">Updating sharing settings...</p>}
 
             <section className="mt-6 border-t border-cyan-500/15 pt-5">
-              <div className="mb-3 flex items-center gap-2 text-white"><UserPlus className="h-4 w-4 text-cyan-300" /><h4 className="font-bold">Share to users</h4></div>
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <input value={shareEmail} onChange={(e) => setShareEmail(e.target.value)} placeholder="person@example.com" className="min-w-0 flex-1 rounded-xl border border-cyan-500/20 bg-[#0f172a] px-3 py-2.5 text-sm text-white outline-none focus:border-cyan-400" />
-                <select value={sharePermission} onChange={(e) => setSharePermission(e.target.value as 'VIEWER' | 'EDITOR')} className="rounded-xl border border-cyan-500/20 bg-[#0f172a] px-3 py-2.5 text-sm text-white outline-none"><option value="VIEWER">Viewer</option><option value="EDITOR">Editor</option></select>
-                <button onClick={addUserShare} disabled={shareLoading || !shareEmail.trim()} className="rounded-xl bg-cyan-500 px-4 py-2.5 text-sm font-bold text-slate-950 disabled:opacity-50">Share</button>
+              <div className="mb-3 flex items-center gap-2 text-white"><UserPlus className="h-4 w-4 text-cyan-300" /><h4 className="font-bold">Share link with anyone</h4></div>
+              <p className="mb-3 text-sm text-slate-400">The recipient does not need an AetherCloud account. Send the generated link to any email address.</p>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <input value={shareEmail} onChange={(e) => setShareEmail(e.target.value)} placeholder="person@example.com" className="min-w-0 rounded-xl border border-cyan-500/20 bg-[#0f172a] px-3 py-3 text-sm text-white outline-none focus:border-cyan-400 sm:col-span-2" />
+                <select value={sharePermission} onChange={(e) => setSharePermission(e.target.value as 'VIEWER' | 'EDITOR')} className="min-w-0 rounded-xl border border-cyan-500/20 bg-[#0f172a] px-3 py-3 text-sm text-white outline-none"><option value="VIEWER">Viewer access</option><option value="EDITOR">Editor access</option></select>
+                <input type="datetime-local" value={shareExpiry} onChange={(e) => setShareExpiry(e.target.value)} className="min-w-0 rounded-xl border border-cyan-500/20 bg-[#0f172a] px-3 py-3 text-sm text-white outline-none" aria-label="Optional link expiry" />
+                <input type="password" value={sharePassword} onChange={(e) => setSharePassword(e.target.value)} placeholder="Optional password" className="min-w-0 flex-1 rounded-xl border border-cyan-500/20 bg-[#0f172a] px-3 py-2.5 text-sm text-white outline-none" />
+                <button onClick={addUserShare} disabled={shareLoading || !shareEmail.trim()} className="rounded-xl bg-cyan-500 px-4 py-3 text-sm font-bold text-slate-950 transition hover:bg-cyan-300 disabled:opacity-50">Share and copy link</button>
               </div>
-              <div className="mt-3 space-y-2">{shares.map((share) => <div key={share.id} className="flex items-center justify-between rounded-xl bg-[#0f172a] px-3 py-2 text-sm"><span className="text-slate-200">{share.sharedWith?.name || share.sharedWith?.email}</span><span className="flex items-center gap-3 text-slate-400">{share.permission === 'EDITOR' ? <Pencil className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}{share.permission}<button onClick={() => revokeUserShare(share.id)} className="text-red-300 hover:text-red-200">Revoke</button></span></div>)}</div>
+              <div className="mt-5"><p className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">People with access</p><div className="space-y-2">{shares.length ? shares.map((share) => <div key={share.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-cyan-500/10 bg-[#0f172a] px-3 py-3 text-sm"><span className="min-w-0 truncate text-slate-200">{share.sharedWith?.name || share.sharedWith?.email}</span><span className="flex items-center gap-3 text-slate-400">{share.permission === 'EDITOR' ? <Pencil className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}{share.permission}<button onClick={() => void revokeUserShare(share.id)} className="rounded-lg border border-red-400/20 px-2.5 py-1 text-xs text-red-300 transition hover:bg-red-500/10">Revoke access</button></span></div>) : <p className="rounded-xl bg-[#0f172a] px-3 py-3 text-sm text-slate-500">Only you have access right now.</p>}</div></div>
             </section>
 
             <section className="mt-6 border-t border-cyan-500/15 pt-5">
-              <div className="mb-3 flex items-center gap-2 text-white"><Link2 className="h-4 w-4 text-cyan-300" /><h4 className="font-bold">Public links</h4></div>
-              <div className="grid gap-2 sm:grid-cols-3">
-                <input type="datetime-local" value={shareExpiry} onChange={(e) => setShareExpiry(e.target.value)} className="rounded-xl border border-cyan-500/20 bg-[#0f172a] px-3 py-2.5 text-sm text-white outline-none" />
-                <input type="password" value={sharePassword} onChange={(e) => setSharePassword(e.target.value)} placeholder="Optional password" className="rounded-xl border border-cyan-500/20 bg-[#0f172a] px-3 py-2.5 text-sm text-white outline-none" />
-                <button onClick={createLink} disabled={shareLoading} className="rounded-xl border border-cyan-400/40 bg-cyan-500/10 px-4 py-2.5 text-sm font-bold text-cyan-200 disabled:opacity-50">Create link</button>
-              </div>
-              <div className="mt-3 space-y-2">{publicLinks.map((link) => <div key={link.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-[#0f172a] px-3 py-2 text-sm"><span className="text-slate-300">{link.expiresAt ? `Expires ${formatDistanceToNow(new Date(link.expiresAt), { addSuffix: true })}` : 'Never expires'}{link.password ? ' · Password protected' : ''}</span><span className="flex items-center gap-3"><button onClick={() => copyLink(link.publicUrl)} className="text-cyan-300 hover:text-cyan-200" aria-label="Copy public link"><Copy className="h-4 w-4" /></button><button onClick={() => revokeLink(link.id)} className="text-red-300 hover:text-red-200">Revoke</button></span></div>)}</div>
+              <div className="mb-3 flex items-center gap-2 text-white"><Link2 className="h-4 w-4 text-cyan-300" /><h4 className="font-bold">Generated link</h4><span className="text-xs text-slate-500">Created after Share</span></div>
+              <div className="mt-3 space-y-2">{publicLinks.filter((link) => newLinkIds.includes(link.id)).map((link) => <div key={link.id} className="rounded-xl border border-cyan-500/10 bg-[#0f172a] px-3 py-3 text-sm"><div className="flex flex-wrap items-center justify-between gap-3"><span className="text-slate-300">{link.expiresAt ? `Expires ${formatDistanceToNow(new Date(link.expiresAt), { addSuffix: true })}` : 'Never expires'}{link.password ? ' · Password protected' : ''}</span><span className="flex items-center gap-2"><button onClick={() => void copyLink(link.publicUrl)} className="inline-flex items-center gap-1.5 rounded-lg border border-cyan-400/20 px-2.5 py-1 text-xs text-cyan-200 hover:bg-cyan-500/10"><Copy className="h-3.5 w-3.5" />Copy link</button><button onClick={() => void revokeLink(link.id)} className="rounded-lg border border-red-400/20 px-2.5 py-1 text-xs text-red-300 hover:bg-red-500/10">Revoke link</button></span></div><p className="mt-2 truncate text-xs text-slate-500">{link.publicUrl}</p></div>)}{!newLinkIds.length && <p className="rounded-xl bg-[#0f172a] px-3 py-3 text-sm text-slate-500">No link generated in this share yet.</p>}</div>
+              <details className="mt-4 rounded-xl border border-cyan-500/10 bg-[#0f172a] px-3 py-3"><summary className="cursor-pointer text-sm font-medium text-slate-400">Existing active links ({publicLinks.filter((link) => !newLinkIds.includes(link.id)).length})</summary><div className="mt-3 space-y-2">{publicLinks.filter((link) => !newLinkIds.includes(link.id)).map((link) => <div key={link.id} className="flex flex-wrap items-center justify-between gap-2 text-xs"><span className="truncate text-slate-500">{link.publicUrl}</span><span className="flex gap-2"><button onClick={() => void copyLink(link.publicUrl)} className="text-cyan-300">Copy</button><button onClick={() => void revokeLink(link.id)} className="text-red-300">Revoke</button></span></div>)}</div></details>
             </section>
           </div>
         </div>
       )}
 
-      {moveItem && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"><div className="w-full max-w-md rounded-3xl border border-cyan-500/25 bg-[#07101f] p-6"><h3 className="text-xl font-black text-white">Move {moveItem.type}</h3><p className="mt-2 truncate text-sm text-slate-400">{moveItem.name}</p><label className="mt-5 block text-sm text-slate-300">Destination folder</label><select value={moveDestination} onChange={(event) => setMoveDestination(event.target.value)} className="mt-2 w-full rounded-xl border border-cyan-500/20 bg-[#0f172a] px-3 py-3 text-white"><option value="">My Files (root)</option>{folders.filter((folder) => folder.id !== moveItem.id).map((folder) => <option key={folder.id} value={folder.id}>{folder.name}</option>)}</select><div className="mt-5 flex gap-3"><button onClick={() => void confirmMove()} className="flex-1 rounded-xl bg-cyan-500 px-4 py-3 font-bold text-slate-950">Move here</button><button onClick={() => setMoveItem(null)} className="flex-1 rounded-xl border border-cyan-500/20 px-4 py-3 text-cyan-200">Cancel</button></div></div></div>}
+      {moveItem && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"><div className="w-full max-w-md rounded-3xl border border-cyan-500/25 bg-[#07101f] p-6"><h3 className="text-xl font-black text-white">Move {moveItem.type}</h3><p className="mt-2 truncate text-sm text-slate-400">{moveItem.name}</p><label className="mt-5 block text-sm text-slate-300">Destination folder</label><select value={moveDestination} onChange={(event) => setMoveDestination(event.target.value)} disabled={moveFoldersLoading || actionBusy?.startsWith('move:')} className="mt-2 w-full rounded-xl border border-cyan-500/20 bg-[#0f172a] px-3 py-3 text-white disabled:opacity-60"><option value="">My Files (root)</option>{allFolders.filter((folder) => folder.id !== moveItem.id).map((folder) => <option key={folder.id} value={folder.id}>{folder.name}</option>)}</select>{moveFoldersLoading && <p className="mt-2 flex items-center gap-2 text-xs text-cyan-300"><LoaderCircle className="h-3.5 w-3.5 animate-spin" />Loading all folders...</p>}<div className="mt-5 flex gap-3"><button onClick={() => void confirmMove()} disabled={moveFoldersLoading || actionBusy?.startsWith('move:')} className="flex-1 rounded-xl bg-cyan-500 px-4 py-3 font-bold text-slate-950 disabled:opacity-50">{actionBusy?.startsWith('move:') ? <LoaderCircle className="mx-auto h-5 w-5 animate-spin" /> : 'Move here'}</button><button onClick={() => setMoveItem(null)} disabled={actionBusy?.startsWith('move:')} className="flex-1 rounded-xl border border-cyan-500/20 px-4 py-3 text-cyan-200 disabled:opacity-50">Cancel</button></div></div></div>}
     </main>
   );
 }

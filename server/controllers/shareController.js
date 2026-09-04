@@ -10,7 +10,7 @@ export const shareWithUser = asyncHandler(async (req, res, next) => {
 
   // Find the user to share with
   const sharedWithUser = await prisma.user.findUnique({
-    where: { email: sharedWithEmail },
+    where: { email: sharedWithEmail.trim().toLowerCase() },
   });
 
   if (!sharedWithUser) {
@@ -59,6 +59,33 @@ export const shareWithUser = asyncHandler(async (req, res, next) => {
     message: 'Item shared successfully',
     share,
   });
+});
+
+export const shareWithLink = asyncHandler(async (req, res) => {
+  const { itemId, itemType, sharedWithEmail, permission, expiresAt, password } = req.validatedData;
+  const userId = req.user.id;
+  const sharedWithUser = await prisma.user.findUnique({ where: { email: sharedWithEmail.trim().toLowerCase() } });
+  if (!sharedWithUser) throw new AppError('No AetherCloud account exists for this email', 404);
+  if (sharedWithUser.id === userId) throw new AppError('Cannot share with yourself', 400);
+
+  const model = itemType === 'file' ? prisma.file : prisma.folder;
+  const item = await model.findUnique({ where: { id: itemId } });
+  if (!item) throw new AppError('Item not found', 404);
+  if (item.ownerId !== userId) throw new AppError('Only the owner can share this item', 403);
+
+  const hashedPassword = password ? await bcrypt.hash(password, 12) : null;
+  const result = await prisma.$transaction(async (transaction) => {
+    const share = await transaction.share.upsert({
+      where: itemType === 'file' ? { fileId_sharedWithId: { fileId: itemId, sharedWithId: sharedWithUser.id } } : { folderId_sharedWithId: { folderId: itemId, sharedWithId: sharedWithUser.id } },
+      update: { permission },
+      create: { ownerId: userId, ...(itemType === 'file' ? { fileId: itemId } : { folderId: itemId }), sharedWithId: sharedWithUser.id, permission },
+      include: { sharedWith: { select: { id: true, email: true, name: true } } },
+    });
+    const link = await transaction.publicLink.create({ data: { token: uuidv4(), ownerId: userId, ...(itemType === 'file' ? { fileId: itemId } : { folderId: itemId }), password: hashedPassword, permission, expiresAt: expiresAt ? new Date(expiresAt) : null } });
+    return { share, link };
+  });
+
+  res.status(201).json({ success: true, message: 'Item shared and link created', share: result.share, link: { ...result.link, publicUrl: `${process.env.CLIENT_URL}/shared/${result.link.token}` } });
 });
 
 export const revokeShare = asyncHandler(async (req, res, next) => {
@@ -122,7 +149,7 @@ export const getShares = asyncHandler(async (req, res, next) => {
 });
 
 export const createPublicLink = asyncHandler(async (req, res, next) => {
-  const { itemId, itemType, expiresAt, password, permission = 'VIEWER' } = req.validatedData;
+  const { itemId, itemType, expiresAt, password, permission = 'VIEWER', recipientEmail } = req.validatedData;
   const userId = req.user.id;
 
   // Verify ownership
@@ -148,6 +175,7 @@ export const createPublicLink = asyncHandler(async (req, res, next) => {
       ownerId: userId,
       ...(itemType === 'file' ? { fileId: itemId } : { folderId: itemId }),
       password: hashedPassword,
+      recipientEmail: recipientEmail?.trim().toLowerCase(),
       permission,
       expiresAt: expiresAt ? new Date(expiresAt) : null,
     },
@@ -281,4 +309,16 @@ export const downloadPublicLink = asyncHandler(async (req, res) => {
   res.setHeader('Content-Type', link.file.mimeType || 'application/octet-stream');
   res.setHeader('Content-Disposition', `attachment; filename="${link.file.name}"`);
   res.send(link.file.fileData);
+});
+
+export const renamePublicLinkItem = asyncHandler(async (req, res) => {
+  const { token } = req.params;
+  const { name } = req.body;
+  const link = await prisma.publicLink.findUnique({ where: { token }, include: { file: true } });
+  if (!link || !link.file) throw new AppError('Link not found or has expired', 404);
+  if (link.expiresAt && new Date() > new Date(link.expiresAt)) throw new AppError('Link has expired', 410);
+  if (link.permission !== 'EDITOR') throw new AppError('This link is view-only', 403);
+  if (typeof name !== 'string' || !name.trim()) throw new AppError('A file name is required', 400);
+  const file = await prisma.file.update({ where: { id: link.fileId }, data: { name: name.trim() } });
+  res.status(200).json({ success: true, file: { id: file.id, name: file.name } });
 });

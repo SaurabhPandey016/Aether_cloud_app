@@ -119,6 +119,7 @@ model PublicLink {
   folderId              String?
   folder                Folder?    @relation("folderPublicLink", fields: [folderId], references: [id], onDelete: Cascade)
   password              String?
+  recipientEmail        String?
   permission            SharePermission @default(VIEWER)
   expiresAt             DateTime?
   createdAt             DateTime   @default(now())

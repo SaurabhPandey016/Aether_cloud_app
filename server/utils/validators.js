@@ -35,20 +35,32 @@ export const moveFileSchema = z.object({
   folderId: z.string().nullable().optional(),
 });
 
+const optionalExpirySchema = z.preprocess((value) => {
+  if (value === undefined || value === null || value === '') return undefined;
+  const parsed = new Date(String(value));
+  return Number.isNaN(parsed.getTime()) ? value : parsed.toISOString();
+}, z.string().datetime().optional());
+
 // Share validation schemas
 export const createShareSchema = z.object({
   itemId: z.string(),
   itemType: z.enum(['file', 'folder']),
-  sharedWithEmail: z.string().email(),
+  sharedWithEmail: z.string().trim().email().transform((email) => email.toLowerCase()),
   permission: z.enum(['VIEWER', 'EDITOR']),
 });
 
 export const createPublicLinkSchema = z.object({
   itemId: z.string(),
   itemType: z.enum(['file', 'folder']),
-  expiresAt: z.string().datetime().optional(),
+  recipientEmail: z.string().trim().email().optional(),
+  expiresAt: optionalExpirySchema,
   password: z.string().optional(),
   permission: z.enum(['VIEWER', 'EDITOR']).optional(),
+});
+
+export const shareWithLinkSchema = createShareSchema.extend({
+  expiresAt: optionalExpirySchema,
+  password: z.string().optional(),
 });
 
 // Search validation

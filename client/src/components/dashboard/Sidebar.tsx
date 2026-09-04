@@ -42,7 +42,7 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
     },
     {
       icon: Share2,
-      label: 'Shared With Me',
+      label: 'Shared Items',
       onClick: () => router.push('/dashboard/shared'),
       path: '/dashboard/shared',
     },

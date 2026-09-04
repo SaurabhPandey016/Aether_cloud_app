@@ -52,6 +52,19 @@ input {
   font: inherit;
 }
 
+button,
+label,
+select,
+summary,
+[role="button"] {
+  cursor: pointer;
+}
+
+button:disabled,
+label:has(input:disabled) {
+  cursor: wait;
+}
+
 ::selection {
   background: rgba(34, 211, 238, 0.25);
   color: #e0f2fe;

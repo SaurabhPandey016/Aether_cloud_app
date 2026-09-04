@@ -119,3 +119,25 @@ export const getSharedWithMe = asyncHandler(async (req, res, next) => {
     folders: sharedFolders,
   });
 });
+
+export const getSharedByMe = asyncHandler(async (req, res) => {
+  const userId = req.user.id;
+  const [files, folders] = await Promise.all([
+    prisma.file.findMany({
+      where: { ownerId: userId, OR: [{ shares: { some: {} } }, { publicLinks: { some: {} } }] },
+      include: { shares: { include: { sharedWith: { select: { id: true, name: true, email: true } } } }, publicLinks: { select: { id: true, recipientEmail: true, permission: true, expiresAt: true } } },
+      orderBy: { updatedAt: 'desc' },
+    }),
+    prisma.folder.findMany({
+      where: { ownerId: userId, OR: [{ shares: { some: {} } }, { publicLinks: { some: {} } }] },
+      include: { shares: { include: { sharedWith: { select: { id: true, name: true, email: true } } } }, publicLinks: { select: { id: true, recipientEmail: true, permission: true, expiresAt: true } }, _count: { select: { files: true, children: true } } },
+      orderBy: { updatedAt: 'desc' },
+    }),
+  ]);
+
+  res.status(200).json({
+    success: true,
+    files: files.map((file) => ({ ...file, size: file.size.toString() })),
+    folders,
+  });
+});

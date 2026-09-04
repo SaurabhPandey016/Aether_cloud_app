@@ -32,6 +32,7 @@ type SharePayload = {
   itemId: string;
   itemType: 'file' | 'folder';
   sharedWithEmail?: string;
+  recipientEmail?: string;
   permission?: 'VIEWER' | 'EDITOR';
   expiresAt?: string;
   password?: string;
@@ -51,7 +52,7 @@ export const authAPI = {
 // Folder APIs
 export const folderAPI = {
   create: (data: FolderPayload) => apiClient.post('/folders', data),
-  getList: (params: RequestParams = {}) => apiClient.get<{ folders: Array<{ id: string; name: string; createdAt: string; _count?: { files: number } }> }>('/folders', { params }),
+  getList: (params: RequestParams = {}) => apiClient.get<{ folders: Array<{ id: string; name: string; parentId?: string; createdAt: string; _count?: { files: number } }> }>('/folders', { params }),
   getDetails: (folderId: string) => apiClient.get(`/folders/${folderId}`),
   rename: (folderId: string, data: FolderPayload) => apiClient.put(`/folders/${folderId}`, data),
   move: (folderId: string, data: FolderPayload) => apiClient.patch(`/folders/${folderId}/move`, data),
@@ -82,6 +83,10 @@ export const fileAPI = {
 // Share APIs
 export const shareAPI = {
   shareWithUser: (data: SharePayload) => apiClient.post('/shares/user', data),
+  shareWithLink: async (data: SharePayload) => {
+    // Public links are intentionally independent of AetherCloud accounts.
+    return apiClient.post('/shares/link', data);
+  },
   revokeShare: (shareId: string) => apiClient.delete(`/shares/${shareId}`),
   getShares: (itemType: string, itemId: string) => apiClient.get(`/shares/${itemType}/${itemId}`),
   createPublicLink: (data: SharePayload) => apiClient.post('/shares/link', data),
@@ -103,4 +108,5 @@ export const trashAPI = {
 export const searchAPI = {
   search: (params: RequestParams = {}) => apiClient.get('/search', { params }),
   getSharedWithMe: () => apiClient.get('/search/shared/with-me'),
+  getSharedByMe: () => apiClient.get('/search/shared/by-me'),
 };

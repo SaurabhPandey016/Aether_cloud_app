@@ -58,7 +58,8 @@ export const uploadFile = async (req, res, next) => {
         });
       }
 
-      if (folder.ownerId !== userId) {
+      const editorShare = await prisma.share.findFirst({ where: { folderId, sharedWithId: userId, permission: 'EDITOR' } });
+      if (folder.ownerId !== userId && !editorShare) {
         return res.status(403).json({
           success: false,
           message: 'You do not have access to this folder',
@@ -103,11 +104,16 @@ export const getFiles = asyncHandler(async (req, res) => {
   const userId = req.user.id;
   const { folderId, search } = req.query;
 
+  const folderAccess = folderId ? await prisma.folder.findFirst({
+    where: { id: folderId, OR: [{ ownerId: userId }, { shares: { some: { sharedWithId: userId } } }] },
+    select: { id: true },
+  }) : null;
+
   const files = await prisma.file.findMany({
     where: {
-      ownerId: userId,
       deletedAt: null,
       folderId: folderId || null,
+      ...(folderId && folderAccess ? {} : { ownerId: userId }),
       ...(search && {
         name: {
           contains: search,
@@ -232,15 +238,13 @@ export const moveFile = asyncHandler(async (req, res, next) => {
   const { folderId } = req.validatedData;
   const userId = req.user.id;
 
-  const file = await prisma.file.findUnique({
-    where: { id: fileId },
-  });
+  const file = await prisma.file.findUnique({ where: { id: fileId }, include: { shares: { where: { sharedWithId: userId }, select: { permission: true } } } });
 
   if (!file) {
     throw new AppError('File not found', 404);
   }
 
-  if (file.ownerId !== userId) {
+  if (file.ownerId !== userId && !file.shares.some((share) => share.permission === 'EDITOR')) {
     throw new AppError('You do not have permission to move this file', 403);
   }
 
@@ -250,7 +254,7 @@ export const moveFile = asyncHandler(async (req, res, next) => {
       where: { id: folderId },
     });
 
-    if (!targetFolder || targetFolder.ownerId !== userId) {
+    if (!targetFolder || (targetFolder.ownerId !== userId && !await prisma.share.findFirst({ where: { folderId, sharedWithId: userId, permission: 'EDITOR' } }))) {
       throw new AppError('Invalid folder', 400);
     }
   }
@@ -278,22 +282,20 @@ export const deleteFile = asyncHandler(async (req, res, next) => {
   const { fileId } = req.params;
   const userId = req.user.id;
 
-  const file = await prisma.file.findUnique({
-    where: { id: fileId },
-  });
+  const file = await prisma.file.findUnique({ where: { id: fileId }, include: { shares: { where: { sharedWithId: userId }, select: { permission: true } } } });
 
   if (!file) {
     throw new AppError('File not found', 404);
   }
 
-  if (file.ownerId !== userId) {
+  if (file.ownerId !== userId && !file.shares.some((share) => share.permission === 'EDITOR')) {
     throw new AppError('You do not have permission to delete this file', 403);
   }
 
   // Move to trash (keep file in database, just mark it as trashed)
   const trash = await prisma.trash.create({
     data: {
-      ownerId: userId,
+      ownerId: file.ownerId,
       fileId,
       expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
     },
