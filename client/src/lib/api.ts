@@ -28,7 +28,14 @@ apiClient.interceptors.response.use(
 type AuthPayload = { email: string; password: string; name?: string };
 type FolderPayload = { name?: string; parentId?: string | null };
 type FilePayload = { name?: string; folderId?: string | null };
-type SharePayload = { password?: string; itemType?: string; itemId?: string };
+type SharePayload = {
+  itemId: string;
+  itemType: 'file' | 'folder';
+  sharedWithEmail?: string;
+  permission?: 'VIEWER' | 'EDITOR';
+  expiresAt?: string;
+  password?: string;
+};
 
 type RequestParams = Record<string, string | number | boolean | null | undefined>;
 
@@ -58,8 +65,11 @@ export const fileAPI = {
     const config = { headers: { 'Content-Type': 'multipart/form-data' } };
     return apiClient.post('/files/upload', formData, config);
   },
-  getList: (params: RequestParams = {}) => apiClient.get<{ files: Array<{ id: string; name: string; mimeType: string; size: number | bigint; createdAt: string }> }>('/files', { params }),
-  download: (fileId: string) => apiClient.get(`/files/${fileId}/download`),
+  getList: (params: RequestParams = {}) => apiClient.get<{ files: Array<{ id: string; name: string; mimeType: string; size: number | bigint; createdAt: string; isFavorite?: boolean }> }>('/files', { params }),
+  download: async (fileId: string) => {
+    const response = await apiClient.get(`/files/${fileId}/download`, { responseType: 'blob' });
+    return response as unknown as Blob;
+  },
   rename: (fileId: string, data: FilePayload) => apiClient.put(`/files/${fileId}`, data),
   move: (fileId: string, data: FilePayload) => apiClient.patch(`/files/${fileId}/move`, data),
   delete: (fileId: string) => apiClient.delete(`/files/${fileId}`),

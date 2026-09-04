@@ -11,6 +11,7 @@ export default function Dashboard() {
   const router = useRouter();
   const { isAuthenticated, isLoading: authLoading, getCurrentUser } = useAuthStore();
   const [mounted, setMounted] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   useEffect(() => {
     setMounted(true);
@@ -36,8 +37,8 @@ export default function Dashboard() {
 
   return (
     <div className="flex h-screen overflow-hidden bg-[#020817] text-white">
-      <Sidebar />
-      <div className="flex flex-1 flex-col overflow-hidden">
+      <Sidebar collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed((prev) => !prev)} />
+      <div className="flex flex-1 flex-col overflow-hidden transition-all duration-300" style={{ marginLeft: sidebarCollapsed ? 80 : 288 }}>
         <Header />
         <main className="flex-1 overflow-hidden pt-20">
           <FileExplorer />

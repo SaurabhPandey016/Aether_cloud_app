@@ -106,6 +106,7 @@ export const getFiles = asyncHandler(async (req, res) => {
   const files = await prisma.file.findMany({
     where: {
       ownerId: userId,
+      deletedAt: null,
       folderId: folderId || null,
       ...(search && {
         name: {
@@ -124,6 +125,7 @@ export const getFiles = asyncHandler(async (req, res) => {
       createdAt: true,
       updatedAt: true,
       owner: { select: { id: true, name: true } },
+      favoriteBy: { where: { id: userId }, select: { id: true } },
       // Exclude fileData from query for better performance
     },
     orderBy: { createdAt: 'desc' },
@@ -131,7 +133,7 @@ export const getFiles = asyncHandler(async (req, res) => {
 
   res.status(200).json({
     success: true,
-    files: serializeFiles(files),
+    files: files.map((file) => ({ ...serializeFile(file), isFavorite: file.favoriteBy.length > 0 })),
   });
 });
 
@@ -297,6 +299,11 @@ export const deleteFile = asyncHandler(async (req, res, next) => {
     },
   });
 
+  await prisma.file.update({
+    where: { id: fileId },
+    data: { deletedAt: new Date() },
+  });
+
   res.status(200).json({
     success: true,
     message: 'File moved to trash',
@@ -361,6 +368,7 @@ export const getFavoriteFiles = asyncHandler(async (req, res, next) => {
 
   const files = await prisma.file.findMany({
     where: {
+      deletedAt: null,
       favoriteBy: {
         some: { id: userId },
       },

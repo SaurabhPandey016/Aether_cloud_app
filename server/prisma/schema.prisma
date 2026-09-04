@@ -67,6 +67,7 @@ model File {
   owner                 User       @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   folderId              String?
   folder                Folder?    @relation(fields: [folderId], references: [id], onDelete: Cascade)
+  deletedAt             DateTime?
   createdAt             DateTime   @default(now())
   updatedAt             DateTime   @updatedAt
 

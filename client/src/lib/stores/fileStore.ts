@@ -10,6 +10,7 @@ export interface StoredFile {
   folderId?: string;
   createdAt: string;
   updatedAt: string;
+  isFavorite?: boolean;
 }
 
 export interface Folder {
@@ -35,7 +36,7 @@ interface FileStore {
   
   setCurrentFolder: (folder: Folder | null) => void;
   loadFolders: (parentId?: string) => Promise<void>;
-  loadFiles: (folderId?: string) => Promise<void>;
+  loadFiles: (folderId?: string, search?: string) => Promise<void>;
   createFolder: (name: string, parentId?: string) => Promise<void>;
   renameFolder: (folderId: string, name: string) => Promise<void>;
   deleteFolder: (folderId: string) => Promise<void>;
@@ -72,10 +73,10 @@ export const useFileStore = create<FileStore>((set, get) => ({
     }
   },
 
-  loadFiles: async (folderId) => {
+  loadFiles: async (folderId, search) => {
     set({ isLoading: true, error: null });
     try {
-      const response = (await fileAPI.getList({ folderId })) as unknown as { files: StoredFile[] };
+      const response = (await fileAPI.getList({ folderId, search: search || undefined })) as unknown as { files: StoredFile[] };
       set({ files: response.files, isLoading: false });
     } catch (error: any) {
       set({ error: error.message || 'Failed to load files', isLoading: false });
@@ -182,9 +183,13 @@ export const useFileStore = create<FileStore>((set, get) => ({
 
   toggleFavorite: async (fileId) => {
     try {
-      await fileAPI.toggleFavorite(fileId);
+      const response = (await fileAPI.toggleFavorite(fileId)) as unknown as { isFavorite: boolean };
+      set((state) => ({
+        files: state.files.map((file) => file.id === fileId ? { ...file, isFavorite: response.isFavorite } : file),
+      }));
     } catch (error: any) {
-      set({ error: error.message || 'Failed to toggle favorite', isLoading: false });
+      set({ error: error.message || 'Failed to toggle favorite' });
+      throw error;
     }
   },
 

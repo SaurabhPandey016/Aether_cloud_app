@@ -1,16 +1,26 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { useAuthStore } from '@/lib/stores/authStore';
 import { Search, LogOut, User, Settings } from 'lucide-react';
 
 export default function Header() {
   const router = useRouter();
+  const pathname = usePathname();
   const { user, logout } = useAuthStore();
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+
+  useEffect(() => {
+    if (pathname !== '/dashboard') return;
+    const timer = window.setTimeout(() => {
+      const query = searchQuery.trim();
+      router.replace(query ? `/dashboard?search=${encodeURIComponent(query)}` : '/dashboard');
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [pathname, router, searchQuery]);
 
   const handleLogout = async () => {
     await logout();
@@ -19,9 +29,6 @@ export default function Header() {
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
-    if (searchQuery.trim()) {
-      router.push(`/dashboard/search?q=${encodeURIComponent(searchQuery)}`);
-    }
   };
 
   return (
