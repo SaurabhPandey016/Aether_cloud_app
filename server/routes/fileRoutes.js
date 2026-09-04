@@ -10,6 +10,7 @@ import {
   toggleFavorite,
   getFavoriteFiles,
   getRecentFiles,
+  getStorageUsage,
 } from '../controllers/fileController.js';
 import { authenticate } from '../middlewares/auth.js';
 import { validateRequest } from '../middlewares/validation.js';
@@ -39,6 +40,7 @@ router.post('/upload', upload.single('file'), uploadFile);
 router.get('/', asyncHandler(getFiles));
 router.get('/favorites', asyncHandler(getFavoriteFiles));
 router.get('/recent', asyncHandler(getRecentFiles));
+router.get('/storage', asyncHandler(getStorageUsage));
 router.get('/:fileId/download', asyncHandler(downloadFile));
 router.put('/:fileId', validateRequest(renameFileSchema), asyncHandler(renameFile));
 router.patch('/:fileId/move', validateRequest(moveFileSchema), asyncHandler(moveFile));

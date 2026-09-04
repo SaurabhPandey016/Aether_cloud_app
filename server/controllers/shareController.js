@@ -122,7 +122,7 @@ export const getShares = asyncHandler(async (req, res, next) => {
 });
 
 export const createPublicLink = asyncHandler(async (req, res, next) => {
-  const { itemId, itemType, expiresAt, password } = req.validatedData;
+  const { itemId, itemType, expiresAt, password, permission = 'VIEWER' } = req.validatedData;
   const userId = req.user.id;
 
   // Verify ownership
@@ -148,6 +148,7 @@ export const createPublicLink = asyncHandler(async (req, res, next) => {
       ownerId: userId,
       ...(itemType === 'file' ? { fileId: itemId } : { folderId: itemId }),
       password: hashedPassword,
+      permission,
       expiresAt: expiresAt ? new Date(expiresAt) : null,
     },
   });
@@ -260,8 +261,24 @@ export const accessPublicLink = asyncHandler(async (req, res, next) => {
 
   res.status(200).json({
     success: true,
-    item: link.file || link.folder,
+    item: link.file ? { ...link.file, size: link.file.size.toString() } : link.folder,
     owner: link.owner,
     itemType: link.file ? 'file' : 'folder',
+    permission: link.permission,
   });
+});
+
+export const downloadPublicLink = asyncHandler(async (req, res) => {
+  const { token } = req.params;
+  const link = await prisma.publicLink.findUnique({ where: { token }, include: { file: true } });
+  if (!link || !link.file) throw new AppError('Link not found or has expired', 404);
+  if (link.expiresAt && new Date() > new Date(link.expiresAt)) throw new AppError('Link has expired', 410);
+  if (link.password) {
+    const password = req.query.password;
+    if (!password || !(await bcrypt.compare(password, link.password))) throw new AppError('Invalid password', 401);
+  }
+  if (!link.file.fileData) throw new AppError('File data not available', 404);
+  res.setHeader('Content-Type', link.file.mimeType || 'application/octet-stream');
+  res.setHeader('Content-Disposition', `attachment; filename="${link.file.name}"`);
+  res.send(link.file.fileData);
 });

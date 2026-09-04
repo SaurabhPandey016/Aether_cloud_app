@@ -1,36 +1,40 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# AetherCloud Client
 
-## Getting Started
+The AetherCloud client is a polished Next.js dashboard for secure file storage. It provides drag-and-drop uploads, search and filtering, file actions, favorites, sharing, trash recovery, and public-link access.
 
-First, run the development server:
+## Stack
+
+- Next.js 16, React 19, TypeScript
+- Tailwind CSS 4 and shadcn-compatible UI primitives
+- Zustand for client state
+- Axios for authenticated API requests
+- Native drag-and-drop upload support
+
+## Run Locally
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open `http://localhost:3000`. Configure `NEXT_PUBLIC_API_URL` in `.env.local` to point to the API, for example `http://localhost:10000/api`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Available Commands
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npm run dev      # Start the development server
+npm run build    # Create a production build
+npm run start    # Serve the production build
+npm run lint     # Run ESLint
+```
 
-## Learn More
+## Main Workflows
 
-To learn more about Next.js, take a look at the following resources:
+- Upload files with the picker or drag-and-drop zone.
+- Search by name and refine results by file type, owner, and sort order.
+- Download, rename, move, star, share, and delete files.
+- Manage Viewer/Editor access and public links with expiry and optional passwords.
+- Restore deleted files from Trash or permanently remove them.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
+The dashboard expects the AetherCloud server to be running locally or at the URL configured in `NEXT_PUBLIC_API_URL`.
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.

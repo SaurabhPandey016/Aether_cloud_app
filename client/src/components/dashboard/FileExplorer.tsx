@@ -1,27 +1,25 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useFileStore } from '@/lib/stores/fileStore';
 import { useAuthStore } from '@/lib/stores/authStore';
-import { fileAPI, shareAPI } from '@/lib/api';
-import { Plus, Upload, FolderOpen, MoreVertical, Download, Share2, Heart, Folder, X, Trash2, Copy, Check, UserPlus, Link2, Eye, Pencil } from 'lucide-react';
+import { fileAPI, folderAPI, shareAPI } from '@/lib/api';
+import { Upload, MoreVertical, Download, Share2, Heart, X, Trash2, Copy, Check, UserPlus, Link2, Eye, Pencil, FileUp, PencilLine, FolderInput, Filter, FolderOpen, ChevronRight, Plus } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 
 export default function FileExplorer() {
   const searchParams = useSearchParams();
+  const router = useRouter();
   const parentId = searchParams.get('parentId');
   const searchQuery = searchParams.get('search') || '';
-  const { files, folders, isLoading, error, loadFolders, loadFiles, createFolder, uploadFile, toggleFavorite, deleteFile } = useFileStore();
+  const { files, folders, isLoading, error, loadFolders, loadFiles, createFolder, uploadFile, toggleFavorite, deleteFile, renameFile, moveFile } = useFileStore();
   const { user } = useAuthStore();
-  const [isCreatingFolder, setIsCreatingFolder] = useState(false);
-  const [newFolderName, setNewFolderName] = useState('');
-  const [showCreateMenu, setShowCreateMenu] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState('');
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [shareFile, setShareFile] = useState<{ id: string; name: string } | null>(null);
+  const [shareFile, setShareFile] = useState<{ id: string; name: string; itemType: 'file' | 'folder' } | null>(null);
   const [shareEmail, setShareEmail] = useState('');
   const [sharePermission, setSharePermission] = useState<'VIEWER' | 'EDITOR'>('VIEWER');
   const [shareExpiry, setShareExpiry] = useState('');
@@ -30,7 +28,15 @@ export default function FileExplorer() {
   const [publicLinks, setPublicLinks] = useState<any[]>([]);
   const [shareLoading, setShareLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const folderInputRef = useRef<HTMLInputElement>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const [typeFilter, setTypeFilter] = useState('all');
+  const [ownerFilter, setOwnerFilter] = useState('all');
+  const [sortBy, setSortBy] = useState('newest');
+  const [isCreatingFolder, setIsCreatingFolder] = useState(false);
+  const [newFolderName, setNewFolderName] = useState('');
+  const [breadcrumbs, setBreadcrumbs] = useState<{ id: string; name: string }[]>([]);
+  const [moveItem, setMoveItem] = useState<{ id: string; name: string; type: 'file' | 'folder' } | null>(null);
+  const [moveDestination, setMoveDestination] = useState('');
 
   useEffect(() => {
     if (user) {
@@ -40,23 +46,18 @@ export default function FileExplorer() {
   }, [user, parentId, searchQuery, loadFolders, loadFiles]);
 
   useEffect(() => {
+    if (!parentId) {
+      setBreadcrumbs([]);
+      return;
+    }
+    folderAPI.getBreadcrumbs(parentId).then((response: any) => setBreadcrumbs(response.breadcrumbs || [])).catch(() => setBreadcrumbs([]));
+  }, [parentId]);
+
+  useEffect(() => {
     if (!notice) return;
     const timer = window.setTimeout(() => setNotice(null), 2500);
     return () => window.clearTimeout(timer);
   }, [notice]);
-
-  const handleCreateFolder = async () => {
-    if (!newFolderName.trim()) return;
-
-    setIsCreatingFolder(true);
-    try {
-      await createFolder(newFolderName, parentId || undefined);
-      setNewFolderName('');
-      setShowCreateMenu(false);
-    } finally {
-      setIsCreatingFolder(false);
-    }
-  };
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFiles = e.target.files;
@@ -79,6 +80,26 @@ export default function FileExplorer() {
     }
   };
 
+  const uploadFiles = useCallback(async (selectedFiles: File[]) => {
+    if (!selectedFiles.length) return;
+    setIsUploading(true);
+    setUploadError('');
+    try {
+      for (const file of selectedFiles) await uploadFile(file, parentId || undefined);
+      setNotice(`${selectedFiles.length} file${selectedFiles.length === 1 ? '' : 's'} uploaded successfully`);
+    } catch (err: any) {
+      setUploadError(err.message || 'Upload failed');
+    } finally {
+      setIsUploading(false);
+    }
+  }, [parentId, uploadFile]);
+
+  const handleDrop = (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    setIsDragging(false);
+    if (!isUploading) void uploadFiles(Array.from(event.dataTransfer.files));
+  };
+
   const handleDownload = async (file: { id: string; name: string }) => {
     try {
       setMenuOpenId(null);
@@ -98,14 +119,14 @@ export default function FileExplorer() {
     }
   };
 
-  const handleShare = async (file: { id: string; name: string }) => {
+  const handleShare = async (file: { id: string; name: string; itemType?: 'file' | 'folder' }) => {
     try {
       setMenuOpenId(null);
-      setShareFile(file);
+      setShareFile({ ...file, itemType: file.itemType || 'file' });
       setShareLoading(true);
       const [shareResponse, linkResponse] = await Promise.all([
-        shareAPI.getShares('file', file.id) as Promise<any>,
-        shareAPI.getPublicLinks('file', file.id) as Promise<any>,
+        shareAPI.getShares(file.itemType || 'file', file.id) as Promise<any>,
+        shareAPI.getPublicLinks(file.itemType || 'file', file.id) as Promise<any>,
       ]);
       setShares(shareResponse.shares || []);
       setPublicLinks(linkResponse.links || []);
@@ -120,10 +141,13 @@ export default function FileExplorer() {
     if (!shareFile || !shareEmail.trim()) return;
     setShareLoading(true);
     try {
-      const response = await shareAPI.shareWithUser({ itemId: shareFile.id, itemType: 'file', sharedWithEmail: shareEmail.trim(), permission: sharePermission }) as any;
+      const response = await shareAPI.shareWithUser({ itemId: shareFile.id, itemType: shareFile.itemType, sharedWithEmail: shareEmail.trim(), permission: sharePermission }) as any;
       setShares((current) => [...current.filter((share) => share.id !== response.share.id), response.share]);
+      const linkResponse = await shareAPI.createPublicLink({ itemId: shareFile.id, itemType: shareFile.itemType, permission: sharePermission }) as any;
+      setPublicLinks((current) => [linkResponse.link, ...current]);
       setShareEmail('');
-      setNotice(`Shared ${shareFile.name}`);
+      await copyLink(linkResponse.link.publicUrl);
+      setNotice(`Shared ${shareFile.name}; link copied`);
     } catch (err: any) {
       setNotice(err?.message || 'Could not share with this user');
     } finally {
@@ -135,7 +159,7 @@ export default function FileExplorer() {
     if (!shareFile) return;
     setShareLoading(true);
     try {
-      const response = await shareAPI.createPublicLink({ itemId: shareFile.id, itemType: 'file', expiresAt: shareExpiry ? new Date(shareExpiry).toISOString() : undefined, password: sharePassword || undefined }) as any;
+      const response = await shareAPI.createPublicLink({ itemId: shareFile.id, itemType: shareFile.itemType, permission: sharePermission, expiresAt: shareExpiry ? new Date(shareExpiry).toISOString() : undefined, password: sharePassword || undefined }) as any;
       setPublicLinks((current) => [response.link, ...current]);
       setShareExpiry('');
       setSharePassword('');
@@ -184,6 +208,59 @@ export default function FileExplorer() {
     }
   };
 
+  const handleRename = async (file: { id: string; name: string }) => {
+    const name = window.prompt('Enter a new file name', file.name)?.trim();
+    if (!name || name === file.name) return;
+    await renameFile(file.id, name);
+    setNotice(`${file.name} renamed`);
+  };
+
+  const handleMove = async (file: { id: string; name: string }) => {
+    setMoveItem({ ...file, type: 'file' });
+    setMoveDestination('');
+  };
+
+  const handleCreateFolder = async () => {
+    const name = newFolderName.trim();
+    if (!name) return;
+    await createFolder(name, parentId || undefined);
+    setNewFolderName('');
+    setIsCreatingFolder(false);
+    setNotice(`${name} folder created`);
+  };
+
+  const openFolder = (folderId: string) => router.push(`/dashboard?parentId=${folderId}`);
+
+  const handleMoveFolder = (folder: { id: string; name: string }) => {
+    setMoveItem({ ...folder, type: 'folder' });
+    setMoveDestination('');
+  };
+
+  const confirmMove = async () => {
+    if (!moveItem) return;
+    if (moveItem.type === 'file') await moveFile(moveItem.id, moveDestination || undefined);
+    else await useFileStore.getState().moveFolder(moveItem.id, moveDestination || undefined);
+    setMoveItem(null);
+    await loadFiles(parentId || undefined, searchQuery);
+    await loadFolders(parentId || undefined);
+    setNotice(`${moveItem.name} moved successfully`);
+  };
+
+  const handleDeleteFolder = async (folder: { id: string; name: string }) => {
+    if (!window.confirm(`Move ${folder.name} to Trash?`)) return;
+    await useFileStore.getState().deleteFolder(folder.id);
+    await loadFolders(parentId || undefined);
+    setNotice(`${folder.name} moved to Trash`);
+  };
+
+  const handleRenameFolder = async (folder: { id: string; name: string }) => {
+    const name = window.prompt('Enter a new folder name', folder.name)?.trim();
+    if (!name || name === folder.name) return;
+    await useFileStore.getState().renameFolder(folder.id, name);
+    await loadFolders(parentId || undefined);
+    setNotice(`${folder.name} renamed`);
+  };
+
   const formatFileSize = (bytes: number | bigint) => {
     const units = ['B', 'KB', 'MB', 'GB'];
     let size = Number(bytes);
@@ -207,55 +284,23 @@ export default function FileExplorer() {
     return '📎';
   };
 
+  const visibleFiles = files
+    .filter((file) => typeFilter === 'all' || file.mimeType.startsWith(`${typeFilter}/`))
+    .filter((file) => ownerFilter === 'all' || file.ownerId === user?.id)
+    .sort((first, second) => sortBy === 'name' ? first.name.localeCompare(second.name) : sortBy === 'size' ? Number(second.size) - Number(first.size) : new Date(second.createdAt).getTime() - new Date(first.createdAt).getTime());
+
   return (
-    <main className="h-full overflow-auto bg-[#020817] p-6">
+    <main className="min-h-full bg-[#020817] p-6">
       <div className="flex items-center justify-between border-b border-cyan-500/15 pb-5">
         <div>
           <h2 className="text-3xl font-black tracking-tight text-white">My Files</h2>
           <p className="mt-1 text-sm text-slate-400">
-            {folders.length} folders · {files.length} files
+            {visibleFiles.length} {visibleFiles.length === 1 ? 'file' : 'files'}
           </p>
         </div>
 
         <div className="flex items-center gap-3">
-          <div className="relative">
-            <button
-              onClick={() => setShowCreateMenu(!showCreateMenu)}
-              className="flex items-center gap-2 rounded-xl border border-cyan-500/20 bg-linear-to-r from-cyan-500/10 to-violet-500/10 px-4 py-2.5 text-sm font-medium text-cyan-200 shadow-[0_0_18px_rgba(34,211,238,0.12)]"
-            >
-              <Plus className="h-4 w-4" />
-              New
-            </button>
-
-            {showCreateMenu && (
-              <div className="absolute right-0 z-20 mt-3 w-52 overflow-hidden rounded-2xl border border-cyan-500/20 bg-[#020817]/95 shadow-[0_20px_40px_rgba(34,211,238,0.12)]">
-                <button
-                  onClick={() => {
-                    setShowCreateMenu(false);
-                    setIsCreatingFolder(true);
-                  }}
-                  className="flex w-full items-center gap-3 border-b border-cyan-500/15 px-4 py-3 text-left text-sm text-cyan-300 transition hover:bg-cyan-500/8"
-                >
-                  <FolderOpen className="h-4 w-4" />
-                  New folder
-                </button>
-
-                <label className="flex w-full cursor-pointer items-center gap-3 px-4 py-3 text-left text-sm text-cyan-300 transition hover:bg-cyan-500/8">
-                  <Upload className="h-4 w-4" />
-                  Upload files
-                  <input
-                    ref={folderInputRef}
-                    type="file"
-                    multiple
-                    onChange={handleFileSelect}
-                    disabled={isUploading}
-                    className="hidden"
-                  />
-                </label>
-              </div>
-            )}
-          </div>
-
+          <button onClick={() => setIsCreatingFolder(true)} className="flex items-center gap-2 rounded-xl border border-cyan-500/20 bg-cyan-500/10 px-4 py-2.5 text-sm font-medium text-cyan-200 hover:border-cyan-400"><Plus className="h-4 w-4" />New folder</button>
           <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-cyan-500/20 bg-[#0f172a] px-4 py-2.5 text-sm font-medium text-cyan-200 hover:border-cyan-400 disabled:cursor-not-allowed disabled:opacity-60">
             <Upload className="h-4 w-4" />
             {isUploading ? 'Uploading...' : 'Upload'}
@@ -270,48 +315,6 @@ export default function FileExplorer() {
           </label>
         </div>
       </div>
-
-      {isCreatingFolder && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-          <div className="w-[420px] rounded-[26px] border border-cyan-500/20 bg-[#020817] p-6 shadow-[0_24px_80px_rgba(34,211,238,0.14)]">
-            <h3 className="text-2xl font-black text-white">Create new folder</h3>
-            <input
-              type="text"
-              value={newFolderName}
-              onChange={(e) => setNewFolderName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') handleCreateFolder();
-                if (e.key === 'Escape') {
-                  setIsCreatingFolder(false);
-                  setNewFolderName('');
-                }
-              }}
-              autoFocus
-              className="mt-5 w-full rounded-xl border border-cyan-500/20 bg-[#0f172a] px-4 py-3 text-white placeholder:text-slate-500 focus:border-cyan-400 focus:outline-none"
-              placeholder="Folder name"
-            />
-
-            <div className="mt-6 flex gap-3">
-              <button
-                onClick={handleCreateFolder}
-                disabled={!newFolderName.trim() || isCreatingFolder}
-                className="flex-1 rounded-xl bg-linear-to-r from-cyan-500 to-purple-600 px-4 py-3 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {isCreatingFolder ? 'Creating...' : 'Create'}
-              </button>
-              <button
-                onClick={() => {
-                  setIsCreatingFolder(false);
-                  setNewFolderName('');
-                }}
-                className="flex-1 rounded-xl border border-cyan-500/20 bg-[#0f172a] px-4 py-3 font-semibold text-cyan-300"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {notice && (
         <div className="mt-6 flex items-center gap-2 rounded-xl border border-cyan-500/20 bg-cyan-500/10 px-4 py-3 text-sm text-cyan-100">
@@ -339,30 +342,19 @@ export default function FileExplorer() {
       )}
 
       {!isLoading && !error && (
-        <div className="mt-8 grid gap-6 xl:grid-cols-[1.45fr_1fr]">
-          <div className="space-y-4">
-            {folders.map((folder) => (
-              <div key={folder.id} className="flex items-center justify-between rounded-2xl border border-cyan-500/20 bg-[#0b1220] p-4 hover:border-cyan-400/60">
-                <div className="flex items-center gap-4">
-                  <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-linear-to-br from-cyan-500/20 to-violet-500/15 text-cyan-300">
-                    <Folder className="h-7 w-7" />
-                  </div>
-                  <div>
-                    <div className="text-lg font-semibold text-white">{folder.name}</div>
-                    <div className="text-sm text-slate-400">
-                      {folder._count?.files || 0} items
-                    </div>
-                  </div>
-                </div>
-                <div className="text-right text-xs text-slate-500">
-                  {folder.createdAt ? formatDistanceToNow(new Date(folder.createdAt), { addSuffix: true }) : 'recently'}
-                </div>
-              </div>
-            ))}
+        <div className="mt-8">
+          {parentId && <nav className="mb-4 flex flex-wrap items-center gap-1 text-sm" aria-label="Breadcrumbs"><button onClick={() => router.push('/dashboard')} className="text-cyan-300 hover:text-cyan-100">My Files</button>{breadcrumbs.map((crumb) => <span key={crumb.id} className="flex items-center gap-1"><ChevronRight className="h-4 w-4 text-slate-600" />{crumb.id === parentId ? <span className="font-semibold text-white">{crumb.name}</span> : <button onClick={() => openFolder(crumb.id)} className="text-cyan-300 hover:text-cyan-100">{crumb.name}</button>}</span>)}</nav>}
+          {folders.length > 0 && <section className="mb-6"><div className="mb-3 flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-slate-400"><FolderOpen className="h-4 w-4" />Folders</div><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{folders.map((folder) => <div key={folder.id} className="flex items-center justify-between rounded-2xl border border-cyan-500/20 bg-[#0b1220] p-4 transition hover:border-cyan-400/60"><button onClick={() => openFolder(folder.id)} className="flex min-w-0 items-center gap-3 text-left"><FolderOpen className="h-6 w-6 shrink-0 text-cyan-300" /><span className="min-w-0"><span className="block truncate font-semibold text-white">{folder.name}</span><span className="text-xs text-slate-400">{folder._count?.files || 0} files</span></span></button><div className="flex items-center gap-1"><button onClick={() => handleShare({ id: folder.id, name: folder.name, itemType: 'folder' })} aria-label={`Share ${folder.name}`} className="rounded-lg p-2 text-slate-400 hover:bg-slate-800 hover:text-cyan-300"><Share2 className="h-4 w-4" /></button><button onClick={() => handleMoveFolder(folder)} aria-label={`Move ${folder.name}`} className="rounded-lg p-2 text-slate-400 hover:bg-slate-800 hover:text-cyan-300"><FolderInput className="h-4 w-4" /></button><button onClick={() => handleRenameFolder(folder)} aria-label={`Rename ${folder.name}`} className="rounded-lg p-2 text-slate-400 hover:bg-slate-800 hover:text-cyan-300"><PencilLine className="h-4 w-4" /></button><button onClick={() => handleDeleteFolder(folder)} aria-label={`Delete ${folder.name}`} className="rounded-lg p-2 text-slate-400 hover:bg-red-500/10 hover:text-red-300"><Trash2 className="h-4 w-4" /></button><ChevronRight className="h-4 w-4 text-slate-500" /></div></div>)}</div></section>}
+          <div onDragOver={(event) => event.preventDefault()} onDragEnter={() => setIsDragging(true)} onDragLeave={() => setIsDragging(false)} onDrop={handleDrop} onClick={() => fileInputRef.current?.click()} className={`mb-6 flex min-h-36 cursor-pointer flex-col items-center justify-center rounded-3xl border border-dashed px-6 py-8 text-center transition ${isDragging ? 'border-cyan-300 bg-cyan-400/10' : 'border-cyan-500/25 bg-[#0b1220]/70 hover:border-cyan-400/60'} ${isUploading ? 'cursor-wait opacity-60' : ''}`}>
+            <FileUp className="h-8 w-8 text-cyan-400" />
+            <p className="mt-3 font-semibold text-white">{isUploading ? 'Uploading files...' : isDragging ? 'Drop files to upload' : 'Drag and drop files here'}</p>
+            <p className="mt-1 text-sm text-slate-400">or click to browse from your device</p>
           </div>
 
-          <div className="space-y-4">
-            {files.map((file) => (
+          <div className="mb-5 flex flex-wrap items-center gap-2 rounded-2xl border border-cyan-500/15 bg-[#0b1220]/70 p-3"><Filter className="ml-1 h-4 w-4 text-cyan-300" /><select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value)} className="rounded-lg border border-cyan-500/20 bg-[#0f172a] px-3 py-2 text-sm text-slate-200"><option value="all">All types</option><option value="image">Images</option><option value="video">Videos</option><option value="audio">Audio</option><option value="application">Documents</option></select><select value={ownerFilter} onChange={(event) => setOwnerFilter(event.target.value)} className="rounded-lg border border-cyan-500/20 bg-[#0f172a] px-3 py-2 text-sm text-slate-200"><option value="all">All owners</option><option value="mine">My files</option></select><select value={sortBy} onChange={(event) => setSortBy(event.target.value)} className="rounded-lg border border-cyan-500/20 bg-[#0f172a] px-3 py-2 text-sm text-slate-200"><option value="newest">Newest first</option><option value="name">Name A-Z</option><option value="size">Largest first</option></select></div>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            {visibleFiles.map((file) => (
               <div key={file.id} className="rounded-2xl border border-cyan-500/20 bg-[#0b1220] p-4">
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex items-center gap-3">
@@ -392,6 +384,8 @@ export default function FileExplorer() {
                           <Share2 className="h-4 w-4" />
                           Share
                         </button>
+                        <button onClick={() => handleRename(file)} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-cyan-200 hover:bg-cyan-500/10"><PencilLine className="h-4 w-4" />Rename</button>
+                        <button onClick={() => handleMove(file)} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-cyan-200 hover:bg-cyan-500/10"><FolderInput className="h-4 w-4" />Move to My Files</button>
                         <button onClick={() => handleFavorite(file)} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-cyan-200 hover:bg-cyan-500/10">
                           <Heart className={file.isFavorite ? 'h-4 w-4 fill-rose-400 text-rose-400' : 'h-4 w-4'} />
                           {file.isFavorite ? 'Unstar' : 'Star'}
@@ -425,13 +419,15 @@ export default function FileExplorer() {
         </div>
       )}
 
-      {!isLoading && !error && folders.length === 0 && files.length === 0 && (
+      {!isLoading && !error && visibleFiles.length === 0 && (
         <div className="mt-8 rounded-[28px] border border-dashed border-cyan-500/25 bg-[#0b1220]/60 p-10 text-center">
-          <div className="mb-4 flex justify-center text-5xl">📁</div>
+          <div className="mb-4 flex justify-center text-5xl">↥</div>
           <h3 className="text-2xl font-black text-white">No files yet</h3>
-          <p className="mt-2 text-slate-400">Create a folder or upload your first file to get started.</p>
+          <p className="mt-2 text-slate-400">Drop files above or use Upload to get started.</p>
         </div>
       )}
+
+      {isCreatingFolder && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"><div className="w-full max-w-md rounded-3xl border border-cyan-500/25 bg-[#07101f] p-6"><h3 className="text-xl font-black text-white">Create folder</h3><input autoFocus value={newFolderName} onChange={(event) => setNewFolderName(event.target.value)} onKeyDown={(event) => event.key === 'Enter' && void handleCreateFolder()} placeholder="Folder name" className="mt-4 w-full rounded-xl border border-cyan-500/20 bg-[#0f172a] px-4 py-3 text-white outline-none focus:border-cyan-400" /><div className="mt-5 flex gap-3"><button onClick={() => void handleCreateFolder()} className="flex-1 rounded-xl bg-cyan-500 px-4 py-3 font-bold text-slate-950">Create</button><button onClick={() => setIsCreatingFolder(false)} className="flex-1 rounded-xl border border-cyan-500/20 px-4 py-3 text-cyan-200">Cancel</button></div></div></div>}
 
       {shareFile && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
@@ -464,6 +460,8 @@ export default function FileExplorer() {
           </div>
         </div>
       )}
+
+      {moveItem && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"><div className="w-full max-w-md rounded-3xl border border-cyan-500/25 bg-[#07101f] p-6"><h3 className="text-xl font-black text-white">Move {moveItem.type}</h3><p className="mt-2 truncate text-sm text-slate-400">{moveItem.name}</p><label className="mt-5 block text-sm text-slate-300">Destination folder</label><select value={moveDestination} onChange={(event) => setMoveDestination(event.target.value)} className="mt-2 w-full rounded-xl border border-cyan-500/20 bg-[#0f172a] px-3 py-3 text-white"><option value="">My Files (root)</option>{folders.filter((folder) => folder.id !== moveItem.id).map((folder) => <option key={folder.id} value={folder.id}>{folder.name}</option>)}</select><div className="mt-5 flex gap-3"><button onClick={() => void confirmMove()} className="flex-1 rounded-xl bg-cyan-500 px-4 py-3 font-bold text-slate-950">Move here</button><button onClick={() => setMoveItem(null)} className="flex-1 rounded-xl border border-cyan-500/20 px-4 py-3 text-cyan-200">Cancel</button></div></div></div>}
     </main>
   );
 }

@@ -6,6 +6,7 @@ import { useAuthStore } from '@/lib/stores/authStore';
 import Header from '@/components/dashboard/Header';
 import Sidebar from '@/components/dashboard/Sidebar';
 import FileExplorer from '@/components/dashboard/FileExplorer';
+import Footer from '@/components/dashboard/Footer';
 
 export default function Dashboard() {
   const router = useRouter();
@@ -38,10 +39,11 @@ export default function Dashboard() {
   return (
     <div className="flex h-screen overflow-hidden bg-[#020817] text-white">
       <Sidebar collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed((prev) => !prev)} />
-      <div className="flex flex-1 flex-col overflow-hidden transition-all duration-300" style={{ marginLeft: sidebarCollapsed ? 80 : 288 }}>
+      <div className="dashboard-main flex flex-1 flex-col overflow-hidden transition-all duration-300" style={{ marginLeft: sidebarCollapsed ? 80 : 288 }}>
         <Header />
-        <main className="flex-1 overflow-hidden pt-20">
+        <main className="flex-1 overflow-auto pt-20">
           <FileExplorer />
+          <Footer />
         </main>
       </div>
     </div>

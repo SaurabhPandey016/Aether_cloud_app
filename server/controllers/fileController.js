@@ -423,3 +423,19 @@ export const getRecentFiles = asyncHandler(async (req, res, next) => {
     files: serializeFiles(files),
   });
 });
+
+/** Return actual active storage usage for the authenticated user. */
+export const getStorageUsage = asyncHandler(async (req, res) => {
+  const result = await prisma.file.aggregate({
+    where: { ownerId: req.user.id, deletedAt: null },
+    _sum: { size: true },
+    _count: { _all: true },
+  });
+  const quota = BigInt(process.env.STORAGE_QUOTA_BYTES || 100 * 1024 * 1024 * 1024);
+  const used = result._sum.size || 0n;
+
+  res.status(200).json({
+    success: true,
+    storage: { usedBytes: used.toString(), quotaBytes: quota.toString(), fileCount: result._count._all },
+  });
+});

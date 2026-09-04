@@ -37,6 +37,12 @@ body {
   font-family: "Inter", "Segoe UI", sans-serif;
 }
 
+@media (max-width: 767px) {
+  .dashboard-main {
+    margin-left: 80px !important;
+  }
+}
+
 * {
   box-sizing: border-box;
 }

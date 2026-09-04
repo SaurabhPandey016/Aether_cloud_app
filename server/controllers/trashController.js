@@ -1,5 +1,6 @@
 import { AppError, asyncHandler } from '../utils/errors.js';
 import prisma from '../config/database.js';
+import { removeFileFromStorage } from '../config/supabase.js';
 
 export const getTrash = asyncHandler(async (req, res, next) => {
   const userId = req.user.id;
@@ -71,14 +72,13 @@ export const emptyTrash = asyncHandler(async (req, res, next) => {
   const userId = req.user.id;
 
   // Get all trash items
-  const trashItems = await prisma.trash.findMany({
-    where: { ownerId: userId },
-  });
-
-  // Delete all trash records (files will be cascade deleted by Prisma)
-  await prisma.trash.deleteMany({
-    where: { ownerId: userId },
-  });
+  const trashItems = await prisma.trash.findMany({ where: { ownerId: userId }, include: { file: true } });
+  for (const item of trashItems) {
+    if (item.file?.fileKey) await removeFileFromStorage(item.file.fileKey);
+    await prisma.trash.delete({ where: { id: item.id } });
+    if (item.fileId) await prisma.file.delete({ where: { id: item.fileId } });
+    if (item.folderId) await prisma.folder.delete({ where: { id: item.folderId } });
+  }
 
   res.status(200).json({
     success: true,
@@ -109,7 +109,7 @@ export const permanentlyDeleteItem = asyncHandler(async (req, res, next) => {
     });
 
     if (file) {
-      await supabase.storage.from(STORAGE_BUCKET).remove([file.fileKey]);
+      if (file.fileKey) await removeFileFromStorage(file.fileKey);
     }
   }
 
@@ -117,6 +117,9 @@ export const permanentlyDeleteItem = asyncHandler(async (req, res, next) => {
   await prisma.trash.delete({
     where: { id: trashId },
   });
+
+  if (trash.fileId) await prisma.file.delete({ where: { id: trash.fileId } });
+  if (trash.folderId) await prisma.folder.delete({ where: { id: trash.folderId } });
 
   res.status(200).json({
     success: true,

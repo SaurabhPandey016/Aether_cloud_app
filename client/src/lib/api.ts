@@ -76,6 +76,7 @@ export const fileAPI = {
   toggleFavorite: (fileId: string) => apiClient.patch(`/files/${fileId}/favorite`),
   getFavorites: () => apiClient.get('/files/favorites'),
   getRecent: (params: RequestParams = {}) => apiClient.get('/files/recent', { params }),
+  getStorage: () => apiClient.get('/files/storage'),
 };
 
 // Share APIs

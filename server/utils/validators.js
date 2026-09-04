@@ -48,6 +48,7 @@ export const createPublicLinkSchema = z.object({
   itemType: z.enum(['file', 'folder']),
   expiresAt: z.string().datetime().optional(),
   password: z.string().optional(),
+  permission: z.enum(['VIEWER', 'EDITOR']).optional(),
 });
 
 // Search validation

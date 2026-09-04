@@ -7,6 +7,7 @@ import {
   getPublicLinks,
   revokePublicLink,
   accessPublicLink,
+  downloadPublicLink,
 } from '../controllers/shareController.js';
 import { authenticate } from '../middlewares/auth.js';
 import { validateRequest } from '../middlewares/validation.js';
@@ -17,6 +18,7 @@ const router = express.Router();
 
 // Public routes
 router.post('/public-link/:token/access', asyncHandler(accessPublicLink));
+router.get('/public-link/:token/download', asyncHandler(downloadPublicLink));
 
 // Protected routes
 router.use(authenticate);
