@@ -108,9 +108,14 @@ export const getSharedWithMe = asyncHandler(async (req, res, next) => {
     orderBy: { createdAt: 'desc' },
   });
 
+  const serializeSharedFiles = sharedFiles.map((file) => ({
+    ...file,
+    size: file.size.toString(),
+  }));
+
   res.status(200).json({
     success: true,
-    files: sharedFiles,
+    files: serializeSharedFiles,
     folders: sharedFolders,
   });
 });
