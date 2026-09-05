@@ -243,6 +243,7 @@ const LandingPage = () => {
         <div className="border-t border-slate-800">
           <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-3 px-5 py-5 text-sm text-slate-400 sm:px-6 lg:flex-row lg:px-8">
             <div>© 2026 Aether Cloud. All rights reserved.</div>
+            <span>Made with <span className="text-rose-400">&#10084;</span> by <span className="font-semibold text-slate-300">Saurabh Pandey</span></span>
             <div className="flex gap-5">
               <span>Privacy</span>
               <span>Terms</span>
