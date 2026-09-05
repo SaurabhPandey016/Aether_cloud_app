@@ -11,17 +11,41 @@ export const apiClient: AxiosInstance = axios.create({
 });
 
 apiClient.interceptors.request.use(
-  (config: InternalAxiosRequestConfig) => config,
+  (config: InternalAxiosRequestConfig) => {
+    // Ensure baseURL is properly set
+    if (!config.baseURL && API_URL) {
+      config.baseURL = API_URL;
+    }
+    return config;
+  },
   (error) => Promise.reject(error),
 );
 
 apiClient.interceptors.response.use(
   (response) => response.data,
   (error) => {
+    console.error('[API Error]', {
+      status: error.response?.status,
+      message: error.message,
+      url: error.config?.url,
+      data: error.response?.data,
+    });
+
+    // Handle 401 Unauthorized - redirect to login
     if (error.response?.status === 401 && typeof window !== 'undefined') {
       window.location.href = '/login';
     }
-    return Promise.reject(error.response?.data || error.message);
+
+    // Handle CORS errors
+    if (error.message === 'Network Error' && !error.response) {
+      console.error('[CORS/Network Error] Check API_URL configuration:', API_URL);
+      return Promise.reject({
+        message: 'Network error - unable to reach server',
+        details: 'Please check your internet connection and API URL configuration',
+      });
+    }
+
+    return Promise.reject(error.response?.data || { message: error.message });
   },
 );
 

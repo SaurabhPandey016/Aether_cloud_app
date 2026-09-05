@@ -83,7 +83,14 @@ export const logout = asyncHandler(async (req, res, next) => {
       throw new AppError('Could not log out', 500);
     }
 
-    res.clearCookie('connect.sid');
+    // Clear session cookie - use the same name as in server.js configuration
+    res.clearCookie('aethercloud-session', {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+      path: '/',
+    });
+    
     res.status(200).json({
       success: true,
       message: 'Logged out successfully',
