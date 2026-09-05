@@ -44,8 +44,9 @@ export default function Signup() {
 
     try {
       await signup(formData.email, formData.password, formData.name);
-      router.push('/dashboard');
+      router.replace('/dashboard');
     } catch (err: any) {
+      console.error('Signup error:', err);
       setLocalError(err.message || 'Signup failed');
     }
   };

@@ -9,14 +9,15 @@ export const useAuth = () => {
   const hasAttemptedFetch = useRef(false);
 
   useEffect(() => {
-    // Only fetch user once on component mount if not already fetching
-    if (!isLoading && !isAuthenticated && !hasAttemptedFetch.current) {
+    // Check auth status on mount (only once)
+    if (!hasAttemptedFetch.current) {
       hasAttemptedFetch.current = true;
+      // Silently check - don't show errors or redirect
       getCurrentUser().catch(() => {
-        // Silently fail - let the app show content, user can authenticate when needed
+        // User not authenticated - this is fine for public pages
       });
     }
-  }, []);
+  }, [getCurrentUser]);
 
   return { user, isAuthenticated, isLoading };
 };
@@ -27,19 +28,19 @@ export const useProtectedRoute = () => {
   const hasAttemptedFetch = useRef(false);
 
   useEffect(() => {
-    // Try to get current user if not already attempting
+    // Check authentication status
     if (!hasAttemptedFetch.current) {
       hasAttemptedFetch.current = true;
       getCurrentUser().catch(() => {
-        // User not authenticated, redirect to login
+        // Error checking auth - component will redirect in next effect
       });
     }
-  }, []);
+  }, [getCurrentUser]);
 
   useEffect(() => {
-    // After loading is done, check if authenticated
+    // Only redirect after loading is complete
     if (!isLoading && !isAuthenticated) {
-      router.push('/login');
+      router.replace('/login');
     }
   }, [isLoading, isAuthenticated, router]);
 

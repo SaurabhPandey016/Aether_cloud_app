@@ -11,8 +11,9 @@ const LandingPage = () => {
   const [isScrolled, setIsScrolled] = useState(false);
 
   useEffect(() => {
+    // Redirect authenticated users to dashboard (after loading complete)
     if (!isLoading && isAuthenticated) {
-      router.push('/dashboard');
+      router.replace('/dashboard');
     }
   }, [isAuthenticated, isLoading, router]);
 

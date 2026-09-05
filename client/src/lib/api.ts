@@ -24,18 +24,19 @@ apiClient.interceptors.request.use(
 apiClient.interceptors.response.use(
   (response) => response.data,
   (error) => {
-    console.error('[API Error]', {
-      status: error.response?.status,
-      message: error.message,
-      url: error.config?.url,
-      data: error.response?.data,
-    });
-
-    // Handle 401 Unauthorized - redirect to login
-    if (error.response?.status === 401 && typeof window !== 'undefined') {
-      window.location.href = '/login';
+    // Log errors for debugging
+    if (error.response?.status !== 401) {
+      console.error('[API Error]', {
+        status: error.response?.status,
+        message: error.message,
+        url: error.config?.url,
+        data: error.response?.data,
+      });
     }
 
+    // DON'T redirect on 401 - let components handle auth state
+    // This allows public pages to work without auto-redirects
+    
     // Handle CORS errors
     if (error.message === 'Network Error' && !error.response) {
       console.error('[CORS/Network Error] Check API_URL configuration:', API_URL);

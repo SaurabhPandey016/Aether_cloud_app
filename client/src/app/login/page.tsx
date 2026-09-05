@@ -32,8 +32,10 @@ export default function Login() {
 
     try {
       await login(formData.email, formData.password);
-      router.push('/dashboard');
+      // Redirect to dashboard after successful login
+      router.replace('/dashboard');
     } catch (err: any) {
+      console.error('Login error:', err);
       setLocalError(err.message || 'Login failed');
     }
   };

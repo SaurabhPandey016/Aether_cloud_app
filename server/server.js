@@ -63,6 +63,7 @@ app.use(express.urlencoded({ limit: '100mb', extended: true }));
 app.use(cookieParser());
 
 // Session configuration
+const isProduction = process.env.NODE_ENV === 'production';
 app.use(
   session({
     secret: process.env.SESSION_SECRET || 'your-secret-key',
@@ -70,10 +71,11 @@ app.use(
     saveUninitialized: false,
     cookie: {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production', // true in production, false in dev
-      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax', // 'none' requires secure: true
+      secure: isProduction ? true : false, // Always HTTPS in production
+      sameSite: isProduction ? 'none' : 'lax', // 'none' required for cross-domain cookies
       maxAge: 24 * 60 * 60 * 1000, // 24 hours
-      domain: process.env.COOKIE_DOMAIN, // Optional: set if needed for subdomain sharing
+      // Only set domain if provided, helps with subdomain sharing in production
+      ...(process.env.COOKIE_DOMAIN && { domain: process.env.COOKIE_DOMAIN }),
     },
     name: 'aethercloud-session',
   }),

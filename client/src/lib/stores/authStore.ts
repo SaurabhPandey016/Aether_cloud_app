@@ -64,8 +64,10 @@ export const useAuthStore = create<AuthStore>((set) => ({
     try {
       const response = (await authAPI.getCurrentUser()) as unknown as { user: User };
       set({ user: response.user, isAuthenticated: true, isLoading: false });
-    } catch (error) {
-      set({ isAuthenticated: false, isLoading: false });
+    } catch (error: any) {
+      // Not authenticated - this is expected for unauthenticated users
+      set({ user: null, isAuthenticated: false, isLoading: false });
+      // Don't throw - let components handle the unauthenticated state
     }
   },
 

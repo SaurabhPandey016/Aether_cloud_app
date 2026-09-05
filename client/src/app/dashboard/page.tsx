@@ -23,7 +23,7 @@ export default function Dashboard() {
 
     if (!isAuthenticated && !authLoading) {
       getCurrentUser().catch(() => {
-        router.push('/login');
+        router.replace('/login');
       });
     }
   }, [mounted, isAuthenticated, authLoading, getCurrentUser, router]);
