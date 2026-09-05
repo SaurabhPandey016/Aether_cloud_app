@@ -11,6 +11,7 @@ type SharedItem = { name: string; mimeType?: string; size?: string };
 export default function SharedFilePage() {
   const { token } = useParams<{ token: string }>();
   const [item, setItem] = useState<SharedItem | null>(null);
+  const [itemType, setItemType] = useState<'file' | 'folder'>('file');
   const [permission, setPermission] = useState('VIEWER');
   const [password, setPassword] = useState('');
   const [needsPassword, setNeedsPassword] = useState(false);
@@ -29,6 +30,7 @@ export default function SharedFilePage() {
     }
     setItem(data.item);
     setName(data.item?.name || '');
+    setItemType(data.itemType || 'file');
     setPermission(data.permission || 'VIEWER');
     setNeedsPassword(false);
   };
@@ -42,7 +44,7 @@ export default function SharedFilePage() {
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
     anchor.href = url;
-    anchor.download = item?.name || 'shared-file';
+    anchor.download = itemType === 'folder' ? `${item?.name || 'shared-folder'}.zip` : item?.name || 'shared-file';
     anchor.click();
     URL.revokeObjectURL(url);
   };
@@ -51,7 +53,7 @@ export default function SharedFilePage() {
     const response = await fetch(`${API_URL}/shares/public-link/${token}/item`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
     const data = await response.json();
     if (!response.ok) { setError(data.message || 'You cannot edit this shared item.'); return; }
-    setItem((current) => current ? { ...current, name: data.file.name } : current);
+    setItem((current) => current ? { ...current, name: data.item.name } : current);
     setEditing(false);
   };
 
@@ -66,7 +68,7 @@ export default function SharedFilePage() {
         {needsPassword && <input autoFocus type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Enter link password" className="mt-4 w-full rounded-xl border border-cyan-500/20 bg-[#0f172a] px-4 py-3 text-white outline-none focus:border-cyan-400" />}
         {error && <p className="mt-4 text-sm text-red-300">{error}</p>}
         {needsPassword && <button onClick={loadLink} className="mt-4 w-full rounded-xl bg-cyan-500 px-4 py-3 font-bold text-slate-950">Unlock link</button>}
-        {item && <div className="mt-6 flex flex-col gap-3 sm:flex-row"><button onClick={download} className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-cyan-500 px-4 py-3 font-bold text-slate-950"><Download className="h-4 w-4" /> Download file</button>{permission === 'EDITOR' && (editing ? <button onClick={() => void saveName()} className="rounded-xl border border-cyan-400/30 px-4 py-3 font-semibold text-cyan-200">Save name</button> : <button onClick={() => setEditing(true)} className="rounded-xl border border-cyan-400/30 px-4 py-3 font-semibold text-cyan-200">Edit name</button>)}</div>}
+        {item && <div className="mt-6 flex flex-col gap-3 sm:flex-row"><button onClick={download} className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-cyan-500 px-4 py-3 font-bold text-slate-950"><Download className="h-4 w-4" /> Download {itemType === 'folder' ? 'folder' : 'file'}</button>{permission === 'EDITOR' && (editing ? <button onClick={() => void saveName()} className="rounded-xl border border-cyan-400/30 px-4 py-3 font-semibold text-cyan-200">Save name</button> : <button onClick={() => setEditing(true)} className="rounded-xl border border-cyan-400/30 px-4 py-3 font-semibold text-cyan-200">Edit name</button>)}</div>}
       </section>
     </main>
   );

@@ -1,8 +1,12 @@
 import crypto from 'crypto';
 import bcrypt from 'bcrypt';
+import { createRequire } from 'module';
 import { v4 as uuidv4 } from 'uuid';
 import { AppError, asyncHandler } from '../utils/errors.js';
 import prisma from '../config/database.js';
+
+const require = createRequire(import.meta.url);
+const { ZipArchive } = require('archiver');
 
 export const shareWithUser = asyncHandler(async (req, res, next) => {
   const { itemId, itemType, sharedWithEmail, permission } = req.validatedData;
@@ -298,27 +302,93 @@ export const accessPublicLink = asyncHandler(async (req, res, next) => {
 
 export const downloadPublicLink = asyncHandler(async (req, res) => {
   const { token } = req.params;
-  const link = await prisma.publicLink.findUnique({ where: { token }, include: { file: true } });
-  if (!link || !link.file) throw new AppError('Link not found or has expired', 404);
+  const link = await prisma.publicLink.findUnique({
+    where: { token },
+    include: { file: true, folder: true },
+  });
+  if (!link || (!link.file && !link.folder)) throw new AppError('Link not found or has expired', 404);
   if (link.expiresAt && new Date() > new Date(link.expiresAt)) throw new AppError('Link has expired', 410);
   if (link.password) {
     const password = req.query.password;
     if (!password || !(await bcrypt.compare(password, link.password))) throw new AppError('Invalid password', 401);
   }
-  if (!link.file.fileData) throw new AppError('File data not available', 404);
-  res.setHeader('Content-Type', link.file.mimeType || 'application/octet-stream');
-  res.setHeader('Content-Disposition', `attachment; filename="${link.file.name}"`);
-  res.send(link.file.fileData);
+
+  if (link.file) {
+    if (!link.file.fileData) throw new AppError('File data not available', 404);
+    res.setHeader('Content-Type', link.file.mimeType || 'application/octet-stream');
+    res.setHeader('Content-Disposition', `attachment; filename="${link.file.name}"`);
+    res.send(link.file.fileData);
+    return;
+  }
+
+  const folders = new Map([[link.folder.id, { ...link.folder, relativePath: link.folder.name }]]);
+  const pendingFolderIds = [link.folder.id];
+
+  while (pendingFolderIds.length > 0) {
+    const parentId = pendingFolderIds.shift();
+    const children = await prisma.folder.findMany({
+      where: { parentId },
+      select: { id: true, name: true, parentId: true },
+    });
+
+    for (const child of children) {
+      const parent = folders.get(child.parentId);
+      folders.set(child.id, {
+        ...child,
+        relativePath: `${parent.relativePath}/${child.name}`,
+      });
+      pendingFolderIds.push(child.id);
+    }
+  }
+
+  const files = await prisma.file.findMany({
+    where: {
+      deletedAt: null,
+      folderId: { in: [...folders.keys()] },
+    },
+    select: { name: true, mimeType: true, fileData: true, folderId: true },
+    orderBy: { createdAt: 'asc' },
+  });
+
+  const archive = new ZipArchive({ zlib: { level: 9 } });
+  archive.on('error', (error) => {
+    if (!res.headersSent) res.status(500).json({ success: false, message: error.message });
+    else res.destroy(error);
+  });
+
+  res.attachment(`${link.folder.name}.zip`);
+  archive.pipe(res);
+
+  for (const folder of folders.values()) {
+    archive.append('', { name: `${folder.relativePath}/` });
+  }
+
+  for (const file of files) {
+    if (!file.fileData) continue;
+    const folder = folders.get(file.folderId);
+    archive.append(file.fileData, {
+      name: `${folder.relativePath}/${file.name}`,
+    });
+  }
+
+  await archive.finalize();
 });
 
 export const renamePublicLinkItem = asyncHandler(async (req, res) => {
   const { token } = req.params;
   const { name } = req.body;
-  const link = await prisma.publicLink.findUnique({ where: { token }, include: { file: true } });
-  if (!link || !link.file) throw new AppError('Link not found or has expired', 404);
+  const link = await prisma.publicLink.findUnique({ where: { token }, include: { file: true, folder: true } });
+  if (!link || (!link.file && !link.folder)) throw new AppError('Link not found or has expired', 404);
   if (link.expiresAt && new Date() > new Date(link.expiresAt)) throw new AppError('Link has expired', 410);
   if (link.permission !== 'EDITOR') throw new AppError('This link is view-only', 403);
   if (typeof name !== 'string' || !name.trim()) throw new AppError('A file name is required', 400);
-  const file = await prisma.file.update({ where: { id: link.fileId }, data: { name: name.trim() } });
-  res.status(200).json({ success: true, file: { id: file.id, name: file.name } });
+
+  if (link.file) {
+    const file = await prisma.file.update({ where: { id: link.fileId }, data: { name: name.trim() } });
+    res.status(200).json({ success: true, item: { id: file.id, name: file.name } });
+    return;
+  }
+
+  const folder = await prisma.folder.update({ where: { id: link.folderId }, data: { name: name.trim() } });
+  res.status(200).json({ success: true, item: { id: folder.id, name: folder.name } });
 });
