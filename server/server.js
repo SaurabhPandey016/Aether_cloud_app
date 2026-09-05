@@ -19,6 +19,11 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 10000;
 const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:3000';
+const isProduction = process.env.NODE_ENV === 'production';
+
+if (isProduction) {
+  app.set('trust proxy', 1);
+}
 
 // Security middleware
 app.use(helmet());
@@ -63,7 +68,6 @@ app.use(express.urlencoded({ limit: '100mb', extended: true }));
 app.use(cookieParser());
 
 // Session configuration
-const isProduction = process.env.NODE_ENV === 'production';
 app.use(
   session({
     secret: process.env.SESSION_SECRET || 'your-secret-key',
@@ -74,8 +78,6 @@ app.use(
       secure: isProduction ? true : false, // Always HTTPS in production
       sameSite: isProduction ? 'none' : 'lax', // 'none' required for cross-domain cookies
       maxAge: 24 * 60 * 60 * 1000, // 24 hours
-      // Only set domain if provided, helps with subdomain sharing in production
-      ...(process.env.COOKIE_DOMAIN && { domain: process.env.COOKIE_DOMAIN }),
     },
     name: 'aethercloud-session',
   }),
